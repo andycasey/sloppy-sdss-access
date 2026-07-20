@@ -1,5 +1,8 @@
 // Custom styling for the sloppy-sdss-access documentation.
 
+// Chroma syntax-highlighting palette (light + dark). See _chroma.scss.
+@import "chroma";
+
 // Tables: these pages lean heavily on comparison tables, so make them readable.
 .markdown table {
   display: table;

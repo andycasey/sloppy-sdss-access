@@ -29,5 +29,3 @@ enableEmoji = false
   BookRepo = "https://github.com/sdss/sdss_access"
   BookSearch = true
   BookComments = false
-
-# Trigger docs rebuild after GitHub Actions outage (2026-07-20).
