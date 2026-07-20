@@ -53,8 +53,8 @@ repr(SDSS("dr19")), repr(SDSS("dr20")), repr(SDSS("sdsswork"))
 "SDSS(release='sdsswork', products=463, collaboration, date=None)"
 ```
 
-Release names are normalised — `SDSS("DR-19")` and `SDSS("dr19")` are the same
-thing — and `load()` is `lru_cache`d, so repeated construction is free.
+Release names are normalised for lookup — `SDSS("DR-19")` and `SDSS("dr19")` resolve
+to the same release — and `load()` is `lru_cache`d, so repeated construction is free.
 
 ## SDSS-5
 
@@ -104,8 +104,8 @@ into the template.
 
 These are **irreducibly environment-dependent**. There is no build-time value to bake
 in, because the answer is a property of the machine, not of the archive. **34 paths
-per SDSS-4 release** are in this class (and 9–15 per SDSS-5 release); they are marked
-`external` in the registry.
+per SDSS-4 release** are in this class (and 0–15 per SDSS-5 release — `ipl1` and
+`ipl2` have none); they are marked `external` in the registry.
 
 ```python
 SDSS("dr17").product("plateHoles").external
@@ -117,21 +117,22 @@ SDSS("dr17").product("plateHoles").template
 '$PRODUCT_ROOT/data/sdss/platelist/trunk/plates/@platedir|/plateHoles-{plateid:0>6}.par'
 ```
 
-> [!DANGER]
-> **`external` products currently resolve anyway, emitting a literal `$VAR`.**
+> [!INFO]
+> **`external` products refuse to resolve, by design.**
 >
 > ```python
 > SDSS("dr17").path("plateHoles", plateid=8000)
 > ```
 >
 > ```
-> '$PRODUCT_ROOT/data/sdss/platelist/trunk/plates/0080XX/008000/plateHoles-008000.par'
+> UnresolvableProduct: 'plateHoles' is not archive data: its template is rooted at
+> $PRODUCT_ROOT, an svn/git software product checkout whose location is a property of
+> your machine, not of the SAS. ...
 > ```
 >
-> The design intent — stated in the project README — is that these **refuse to
-> resolve**. `paths.py` checks `product.broken` but not `product.external`, so they do
-> not. Until that is fixed, check `.external` yourself before trusting a path, and
-> treat any result containing `$` as unresolved.
+> `paths.py` checks both `product.broken` and `product.external`, so a software-product
+> path never silently comes back with a literal `$VAR` in it. Detect the case ahead of
+> time with `SDSS(r).product(sp).external`.
 
 ### Why this is the design flaw worth fixing
 
@@ -181,8 +182,8 @@ But deleting the whole section also discards **`BOSS_GALAXY_REDUX`**, which only
 path with the variable still in it:
 
 ```bash
-$ python -c "
-from sloppy_sdss_access import Path
+$ python -c "                              # the real sdss-access, in its own venv
+from sdss_access import Path
 print(Path(release='dr17').full('portsmouth_emlinekin', galaxy_vers='v1', run2d='v5_13_2'))"
 ```
 

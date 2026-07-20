@@ -69,7 +69,7 @@ virtualenv:
 
 ```bash
 $ SAS_BASE_DIR=/tmp/sas python -c "
-from sloppy_sdss_access import Path
+from sdss_access import Path
 p = Path(release='dr19')
 print(p.location('specLite', fieldid=15000, mjd=59146, catalogid=4375924756, run2d='v6_1_3'))
 print(p.url('specLite', fieldid=15000, mjd=59146, catalogid=4375924756, run2d='v6_1_3'))"
@@ -110,7 +110,7 @@ Legacy could emit a **malformed path with an empty segment**. Verified against
 
 ```bash
 $ python -c "
-from sloppy_sdss_access import Path
+from sdss_access import Path
 print(Path(release='dr19').location('specFull', fieldid='', mjd=59797, catalogid=1, run2d='v6_1_3'))"
 ```
 
@@ -323,9 +323,11 @@ and the run **fails** unless every derivation is exercised with **≥2 distinct
 outputs**. Mutation-tested: replacing `pad_fieldid`, `spcoaddobs`, `sptypefolder` or
 `healpixgrp` with a constant is caught.
 
-Three derivations (`configgrp`, `configsubmodule`, `platedir`) are reachable only
-from `external` products, so parity cannot cover them. They are unit-tested and
-explicitly exempted from the gate rather than silently counted.
+Six derivations (`configgrp`, `configsubmodule`, `platedir`, and the SDSS-4 plate
+derivations `definitiondir`, `plategrp`, `plateid6`) are reachable only from
+`external` products, so parity cannot cover them. They are unit-tested and
+explicitly exempted from the gate rather than silently counted. That is why the gate
+denominator works out to 18/24 — 24 derivations minus these six.
 
 > [!WARNING]
 > **Known blind spot.** The comparison normalises away `.gz`/`.bz2`/`.zip`/`.fz`

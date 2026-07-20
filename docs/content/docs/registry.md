@@ -15,7 +15,7 @@ sloppy-sdss-access-build-registry
 
 > [!INFO]
 > The console script is `sloppy-sdss-access-build-registry` (the **distribution** name),
-> even though the module you import is `sdss_access`. Running
+> even though the module you import is `sloppy_sdss_access`. Running
 > `python tools/build_registry.py` from a checkout is equivalent.
 
 ## What the build does
@@ -136,10 +136,15 @@ This report is how the `broken` list in
 ### Job 1 — `update`
 
 Runs **weekly** (Mondays 06:00 UTC) and on demand via `workflow_dispatch`, which
-takes a `ref` input so you can build from a specific tree tag.
+takes a `ref` input so you can build from a specific tree tag. The file-level `on:`
+also carries `pull_request` / `push` triggers used by Job 2, so this job is guarded
+to run only on the schedule and manual dispatch:
 
 ```yaml
 on:
+  pull_request:            # used by Job 2 (check-consistency)
+  push:
+    branches: [main]       # ditto
   schedule:
     - cron: "0 6 * * 1"
   workflow_dispatch:
@@ -147,6 +152,10 @@ on:
       ref:
         description: "git ref of sdss/tree to build from (tag, branch, or SHA)"
         default: "main"
+
+jobs:
+  update:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
 ```
 
 Steps:
@@ -191,21 +200,16 @@ python tools/parity_check.py
 
 See [Migrating → how the equivalence was checked]({{< relref "/docs/migrating#how-the-equivalence-was-checked" >}}).
 
-> [!WARNING]
-> ### Two known issues in the workflow file
+> [!INFO]
+> **This workflow _is_ the CI.** There is [no other CI]({{< relref "/docs/limitations" >}})
+> for the project beyond this file, so it is worth knowing exactly what it does:
 >
-> Read before relying on CI:
->
-> * The `add-paths` list still refers to `src/sdss5/data/registry.json`, but the
->   package was renamed and the file now lives at
->   **`src/sloppy_sdss_access/data/registry.json`**. The PR would not include the rebuilt
->   registry.
-> * `check-consistency` has no `on:` trigger of its own; it inherits the `schedule` /
->   `workflow_dispatch` triggers of the file, so it does **not** actually run on pull
->   requests as intended.
->
-> Neither is fixed. There is [no CI]({{< relref "/docs/limitations" >}}) for this
-> project beyond this file.
+> * The weekly `update` job stages `src/sloppy_sdss_access/data/registry.json` (and the
+>   vendored `tools/*.cfg`) into its PR via `add-paths`, so a rebuilt registry is
+>   actually committed.
+> * `check-consistency` has no `if:` guard, so the file-level `pull_request` / `push`
+>   triggers run it on **every PR and every push to `main`** — an edited `.cfg` cannot
+>   be merged without a matching rebuild.
 
 ## Longer term
 

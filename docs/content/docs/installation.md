@@ -130,7 +130,7 @@ Run the test suite from a checkout:
 
 ```bash
 $ pytest -q
-96 passed in 0.09s
+99 passed in 0.09s
 ```
 
 And the differential check against the real `sdss-access` (install it alongside,

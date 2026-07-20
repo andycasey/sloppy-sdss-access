@@ -54,7 +54,8 @@ your machine, not of the SAS. ...
 ```
 
 Detect them with `SDSS(r).product(sp).external` before calling `path()`.
-Affected: 34 products per SDSS-4 release, 9–15 per SDSS-5 release.
+Affected: 34 products per SDSS-4 release, 0–15 per SDSS-5 release (`ipl1` and `ipl2`
+have none).
 
 The proper fix is an explicit second resolver — `SDSS4(release=..., product_root=...)` —
 so software-product paths are opt-in and obviously environment-dependent at the call
@@ -114,12 +115,12 @@ unreachable. Reproducing it is what makes parity hold — but it means **this pa
 is knowingly wrong in the same way**. It should be fixed in both places together.
 See [Migrating]({{< relref "/docs/migrating#2-dead-branch-in-spcoaddobs" >}}).
 
-## Three derivations are not covered by parity
+## Six derivations are not covered by parity
 
-`configgrp`, `configsubmodule` and `platedir` are reachable only from `external`
-products, so the differential check cannot exercise them. They are unit-tested and
-**explicitly exempted** from the coverage gate rather than silently counted — but
-they have no differential guarantee.
+`configgrp`, `configsubmodule`, `platedir`, `definitiondir`, `plategrp` and
+`plateid6` are reachable only from `external` products, so the differential check
+cannot exercise them. They are unit-tested and **explicitly exempted** from the
+coverage gate rather than silently counted — but they have no differential guarantee.
 
 ## Not implemented at all
 

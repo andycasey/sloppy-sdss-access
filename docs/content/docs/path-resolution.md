@@ -218,7 +218,7 @@ This is [#73](https://github.com/sdss/sdss_access/issues/73) and
 ## Derivations
 
 Derivations are `sdss_access`'s "special functions", ported to plain module-level
-functions in `sdss_access/derive.py`. They compute a path *segment* from one or more
+functions in `sloppy_sdss_access/derive.py`. They compute a path *segment* from one or more
 keys — typically grouping directories that keep any one folder from holding a
 million files.
 
@@ -238,7 +238,7 @@ be diffed against the legacy implementation. Known upstream quirks are marked
 ### All 24 derivations
 
 ```python
-from sdss_access.derive import DERIVATIONS
+from sloppy_sdss_access.derive import DERIVATIONS
 len(DERIVATIONS)
 ```
 

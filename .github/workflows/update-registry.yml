@@ -63,13 +63,13 @@ jobs:
           title: "Rebuild registry from sdss/tree@${{ github.event.inputs.ref || 'main' }}"
           body-path: build.log
           add-paths: |
-            src/sdss_access/data/registry.json
+            src/sloppy_sdss_access/data/registry.json
             tools/*.cfg
 
   # Separately, fail CI on any PR whose committed registry does not match its
-  # vendored cfgs -- i.e. someone edited a cfg but forgot to rebuild.
-  # NOTE: this job needs its own triggers; the `on:` block above is schedule and
-  # workflow_dispatch only, so without these it would never run on a PR.
+  # vendored cfgs -- i.e. someone edited a cfg but forgot to rebuild. Unlike the
+  # `update` job, this has no `if:` guard, so the top-level `pull_request` / `push`
+  # triggers run it on every PR and every push to main.
   check-consistency:
     runs-on: ubuntu-latest
     steps:

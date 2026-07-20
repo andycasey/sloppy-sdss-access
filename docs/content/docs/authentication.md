@@ -64,7 +64,7 @@ except urllib.error.HTTPError as e: print(e.code, e.headers.get('WWW-Authenticat
 > and it will become public on its own, with no code change, once that date passes.
 
 ```python
-from sdss_access.auth import is_public
+from sloppy_sdss_access.auth import is_public
 import datetime
 
 is_public("dr19", "2025-07-10")                            # True
@@ -213,7 +213,7 @@ Credentials are sent as an explicit `Authorization` header folded into the fsspe
 
 | legacy | here |
 |---|---|
-| `Auth(netloc, public=..)` / `set_auth(inquire=True)` | `sdss_access.auth.resolve(host, ...)` |
+| `Auth(netloc, public=..)` / `set_auth(inquire=True)` | `sloppy_sdss_access.auth.resolve(host, ...)` |
 | implicit prompt on missing credentials | `allow_prompt=True`, and only on a TTY |
 | `HttpAccess().set_auth(user, pass)` | supported on the shim; sets `Access.username`/`.password` |
 | `public=True` on `Path` | accepted and **ignored** — publicness is computed from the release date |

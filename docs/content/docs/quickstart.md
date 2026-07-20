@@ -219,7 +219,7 @@ t = time.time(); a.fetch_many(items); print("%.4fs" % (time.time() - t))
 0.0004s
 ```
 
-The second call is served from `~/.cache/sdss_access`.
+The second call is served from `~/.cache/sloppy_sdss_access`.
 
 > [!DANGER]
 > **The cache has no eviction policy.** It grows without bound. See

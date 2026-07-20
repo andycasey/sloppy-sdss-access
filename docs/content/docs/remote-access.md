@@ -166,15 +166,15 @@ await a.afetch_many(items)
 
 ## Caching
 
-Fetches are cached on disk under `~/.cache/sdss_access`, or
-`$XDG_CACHE_HOME/sdss_access` if that is set.
+Fetches are cached on disk under `~/.cache/sloppy_sdss_access`, or
+`$XDG_CACHE_HOME/sloppy_sdss_access` if that is set.
 
 ```python
 Access(SDSS("dr19")).cache
 ```
 
 ```
-PosixPath('~/.cache/sdss_access')
+PosixPath('~/.cache/sloppy_sdss_access')
 ```
 
 Pass `cache=None` to disable it, or `cache="/some/dir"` to relocate it.
@@ -197,7 +197,7 @@ Pass `cache=None` to disable it, or `cache="/some/dir"` to relocate it.
 > exists. Until then, clear it by hand:
 >
 > ```bash
-> rm -rf ~/.cache/sdss_access
+> rm -rf ~/.cache/sloppy_sdss_access
 > ```
 
 ## Compression probing
