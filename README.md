@@ -194,14 +194,6 @@ credentials are not wired.
 
 ## SDSS-4 (DR13–DR17)
 
-Added as an experiment. 3,712 products across 13 releases; parity is 16,820
-comparisons with zero divergences.
-
-**SDSS-4 is not separable from SDSS-III.** DR13–DR17 all chain back to DR8, and
-the leaf configs are nearly empty on their own (DR14 defines 3 path entries;
-DR8 defines 164). Ingesting SDSS-4 means ingesting DR8–DR12 by inheritance.
-DR13–DR17 are exposed as releases; DR7–DR12 are inherited-from but not offered.
-
 ### The `$PRODUCT_ROOT` problem — why some SDSS-4 paths cannot be compiled
 
 The whole approach here rests on one property: **every `$ENVVAR` in a tree
