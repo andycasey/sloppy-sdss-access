@@ -1,0 +1,183 @@
+name: Release
+
+# Publishes to PyPI when a v* tag is pushed.
+#
+# Authentication is PyPI Trusted Publishing (OIDC) -- there is no API token
+# stored in this repository. See the one-time setup note at the bottom of this
+# file; without it, the publish step fails with an authentication error.
+#
+#   git tag -a v0.1.2 -m "v0.1.2" && git push origin v0.1.2
+
+on:
+  push:
+    tags:
+      - "v*"
+  # Lets you rehearse everything except the upload.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and test only; do not publish"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ------------------------------------------------------------------
+  # Everything that can fail should fail here, before anything is uploaded.
+  # A PyPI version number can never be reused, so a bad publish is permanent.
+  # ------------------------------------------------------------------
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install (with the real sdss-access, for the differential check)
+        run: |
+          pip install -e ".[dev]"
+          pip install sdss-access
+
+      - name: Tag must match the packaged version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          python - <<'PY'
+          import os, pathlib, re, sys, tomllib
+
+          tag = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          pkg = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]
+          init = pathlib.Path("src/sloppy_sdss_access/__init__.py").read_text()
+          dunder = re.search(r'__version__ = "([^"]+)"', init).group(1)
+
+          print(f"tag={tag}  pyproject={pkg}  __version__={dunder}")
+          problems = []
+          if tag != pkg:
+              problems.append(f"tag v{tag} != pyproject.toml {pkg}")
+          if tag != dunder:
+              problems.append(f"tag v{tag} != __version__ {dunder}")
+          for p in problems:
+              print(f"::error::{p}")
+          sys.exit(1 if problems else 0)
+          PY
+
+      - name: Tests
+        run: pytest -q
+
+      - name: Registry matches its source configs
+        run: python tools/build_registry.py --check
+
+      - name: Differential check against sdss-access
+        run: python tools/parity_check.py
+
+      - name: Build
+        run: |
+          pip install build twine
+          python -m build
+          twine check dist/*
+
+      - name: The built wheel must actually work
+        # Guards the failure mode that shipped in 0.1.0: a wheel that imports
+        # fine but carries a broken registry.
+        run: |
+          python -m venv /tmp/wheelcheck
+          /tmp/wheelcheck/bin/pip install dist/*.whl
+          /tmp/wheelcheck/bin/python - <<'PY'
+          from sloppy_sdss_access import SDSS, known_releases, load
+          assert len(known_releases()) == 13, known_releases()
+          for name in known_releases():
+              assert len(load(name)) > 90, (name, len(load(name)))
+          got = SDSS("dr19").path("astraAllStarASPCAP")
+          assert got.endswith("astraAllStarASPCAP-0.6.0.fits.gz"), got
+          print("wheel OK:", got)
+          PY
+
+      - name: The builder must not destroy the shipped registry
+        # Regression test for the 0.1.0 defect, exercised against the real wheel.
+        run: |
+          export XDG_CACHE_HOME=/tmp/emptycache
+          /tmp/wheelcheck/bin/sloppy-sdss-access-build-registry && rc=0 || rc=$?
+          if [ "${rc:-0}" -eq 0 ]; then
+            echo "::error::Bare invocation should refuse without source configs"
+            exit 1
+          fi
+          /tmp/wheelcheck/bin/python -c "
+          from sloppy_sdss_access import load
+          n = len(load('dr19'))
+          assert n == 334, f'registry was damaged: dr19 has {n} products'
+          print('registry intact after bare invocation:', n)
+          "
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  # ------------------------------------------------------------------
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    # Only on a real tag, and never on a dispatch dry run.
+    if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
+    environment:
+      name: pypi
+      url: https://pypi.org/project/sloppy-sdss-access/
+    permissions:
+      id-token: write     # required for Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  # ------------------------------------------------------------------
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Needed so the annotated tag object (and its message) is available;
+          # the default shallow fetch does not bring tag contents with it.
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Create the GitHub release from the tag message
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")
+          if [ -z "$notes" ]; then
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "$GITHUB_REF_NAME" --generate-notes
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "$GITHUB_REF_NAME" --notes "$notes"
+          fi
+
+# ----------------------------------------------------------------------
+# ONE-TIME SETUP (required before the first tag-triggered publish)
+#
+# 1. https://pypi.org/manage/project/sloppy-sdss-access/settings/publishing/
+#    Add a trusted publisher:
+#        Owner:            andycasey
+#        Repository:       sloppy-sdss-access
+#        Workflow name:    release.yml
+#        Environment name: pypi
+#
+# 2. GitHub → Settings → Environments → New environment → "pypi"
+#    Optionally add yourself as a required reviewer, which makes every publish
+#    pause for manual approval.
+#
+# Until step 1 is done, `verify` passes and `publish` fails on authentication.
+# ----------------------------------------------------------------------
