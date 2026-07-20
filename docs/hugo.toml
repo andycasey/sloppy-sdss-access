@@ -1,0 +1,30 @@
+baseURL = "/"
+title = "sloppy-sdss-access"
+languageCode = "en-us"
+enableGitInfo = false
+enableEmoji = false
+
+# The Book theme is vendored under _vendor/, so this builds with no network.
+[module]
+  [[module.imports]]
+    path = "github.com/alex-shpak/hugo-book"
+
+[markup.goldmark.renderer]
+  unsafe = true
+
+[markup.highlight]
+  style = "github"
+  noClasses = false
+  lineNos = false
+
+[markup.tableOfContents]
+  startLevel = 2
+  endLevel = 3
+
+[params]
+  BookTheme = "auto"
+  BookToC = true
+  BookSection = "docs"
+  BookRepo = "https://github.com/sdss/sdss_access"
+  BookSearch = true
+  BookComments = false

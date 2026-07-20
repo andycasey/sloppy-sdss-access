@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sloppy-sdss-access"
+version = "0.1.0"
+description = "SDSS data product paths, without the environment variables"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "BSD-3-Clause" }
+
+# Remote access is now part of the baseline rather than an extra. Resolving a
+# path still costs no imports beyond the standard library, but a package whose
+# point is fetching data should be able to fetch data straight after install.
+dependencies = [
+    "fsspec>=2024.6",
+    "aiohttp>=3.9",
+]
+
+[project.optional-dependencies]
+s3 = ["s3fs>=2024.6"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+sloppy-sdss-access-build-registry = "sloppy_sdss_access._build:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sloppy_sdss_access"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

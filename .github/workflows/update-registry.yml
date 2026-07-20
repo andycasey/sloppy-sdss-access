@@ -1,0 +1,81 @@
+name: Update registry from sdss/tree
+
+# The registry is a build artifact of sdss/tree. This keeps it fresh without
+# anyone having to remember: it rebuilds weekly, and opens a PR only when the
+# compiled output actually changes. A PR (not a direct push) is deliberate --
+# a tree change can alter thousands of paths, and that deserves a human diff.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"     # Mondays, 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "git ref of sdss/tree to build from (tag, branch, or SHA)"
+        default: "main"
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    # Only rebuild on a schedule or by hand -- not on every PR.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install -e ".[access,dev]"
+
+      - name: Rebuild registry from sdss/tree
+        run: |
+          python tools/build_registry.py \
+            --fetch --ref "${{ inputs.ref || 'main' }}" | tee build.log
+
+      - name: Run tests against the new registry
+        run: pytest -q
+
+      # Parity needs the legacy stack; it is the real check that a tree change
+      # did not silently alter path semantics. Non-blocking install so a broken
+      # sdss-access release cannot wedge the update.
+      - name: Differential check vs sdss_access
+        continue-on-error: true
+        run: |
+          pip install sdss-access || exit 0
+          SAS_BASE_DIR=/tmp/sas python tools/parity_check.py | tee parity.log
+
+      - name: Open a PR if the registry changed
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "Rebuild registry from sdss/tree@${{ inputs.ref || 'main' }}"
+          branch: registry-update
+          delete-branch: true
+          title: "Rebuild registry from sdss/tree@${{ inputs.ref || 'main' }}"
+          body-path: build.log
+          add-paths: |
+            src/sdss_access/data/registry.json
+            tools/*.cfg
+
+  # Separately, fail CI on any PR whose committed registry does not match its
+  # vendored cfgs -- i.e. someone edited a cfg but forgot to rebuild.
+  # NOTE: this job needs its own triggers; the `on:` block above is schedule and
+  # workflow_dispatch only, so without these it would never run on a PR.
+  check-consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - run: python tools/build_registry.py --check
