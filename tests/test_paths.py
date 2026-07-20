@@ -393,3 +393,32 @@ def test_no_resolved_path_ever_contains_a_literal_envvar():
             if "$" in got:
                 offenders.append(f"{name}/{species}: {got}")
     assert not offenders, offenders[:10]
+
+
+# ----------------------------------------------------------------------
+# the registry builder must never destroy a shipped registry
+# ----------------------------------------------------------------------
+
+
+def test_builder_refuses_to_run_without_source_configs(monkeypatch, tmp_path):
+    """Regression: running the console script bare in an *installed* env used to
+    rebuild an empty registry over the shipped one, leaving 0 products."""
+    from sloppy_sdss_access import _build
+
+    monkeypatch.setattr(_build, "HERE", tmp_path)  # no .cfg files here
+    assert _build.missing_configs() == list(_build.RELEASES)
+    with pytest.raises(SystemExit, match="No tree configs"):
+        _build.require_configs()
+
+
+def test_builder_guard_passes_with_configs_present():
+    from sloppy_sdss_access import _build
+
+    assert _build.missing_configs() == []
+    _build.require_configs()  # must not raise
+
+
+def test_shipped_registry_is_not_degenerate():
+    """Every release must carry products; a zero-product release means a bad build."""
+    empty = [name for name in known_releases() if len(load(name)) == 0]
+    assert not empty, empty

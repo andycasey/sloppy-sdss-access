@@ -217,3 +217,24 @@ See [Migrating → how the equivalence was checked]({{< relref "/docs/migrating#
 > Relatedly, the `DERIVATION_KEYS` table lives in the **builder**, not next to the
 > functions in `derive.py`, so the two can drift. A test catches unused derivations but
 > not wrong key sets.
+
+
+## Running it from an installed package
+
+This command compiles `sdss/tree` `.cfg` files, and those ship only in a source
+checkout — an installed wheel contains just the compiled `registry.json`.
+
+> [!WARNING]
+> Without `--fetch`, the command refuses to run when the configs are absent, and
+> exits non-zero rather than writing anything. That guard matters: in 0.1.0 a bare
+> invocation inside an installed environment rebuilt an **empty** registry over the
+> shipped one, leaving the package resolving zero products. Fixed in 0.1.1.
+
+| invocation | from a checkout | from an installed package |
+|---|---|---|
+| *(no args)* | rebuilds from `tools/*.cfg` | refuses, exit **1** |
+| `--fetch` | downloads, then rebuilds | downloads, then rebuilds |
+| `--check` | compares, exit 0/1 | cannot compare, exit **2** |
+
+`--fetch` caches the configs under `$XDG_CACHE_HOME/sloppy-sdss-access-tree-cfg`,
+so a later `--check` in the same environment works normally.

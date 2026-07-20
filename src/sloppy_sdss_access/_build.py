@@ -430,6 +430,37 @@ def build_release(name: str) -> dict:
     }
 
 
+class NoSourceConfigs(SystemExit):
+    """Raised when the tree .cfg files this command compiles are not present."""
+
+
+def missing_configs() -> list[str]:
+    """Releases whose .cfg is not on disk."""
+    return [name for name in RELEASES if not (HERE / f"{name}.cfg").exists()]
+
+
+def require_configs() -> None:
+    """Refuse to proceed without the source configs.
+
+    An installed wheel ships only the compiled ``registry.json`` -- the ``.cfg``
+    files live in a source checkout. Without this guard, running the command
+    bare inside an installed environment silently rebuilt an *empty* registry
+    over the shipped one, leaving the package resolving zero products.
+    """
+    missing = missing_configs()
+    if not missing:
+        return
+    raise NoSourceConfigs(
+        f"No tree configs for: {', '.join(missing)}\n"
+        f"Looked in: {HERE}\n\n"
+        "This command compiles sdss/tree .cfg files, which ship only in a source\n"
+        "checkout -- an installed package contains just the compiled registry.\n\n"
+        "Either:\n"
+        "  sloppy-sdss-access-build-registry --fetch    # download them from sdss/tree\n"
+        "  git clone https://github.com/andycasey/sloppy-sdss-access && cd it"
+    )
+
+
 def build(shas: dict[str, str] | None = None, ref: str | None = None) -> dict:
     """Compile every release into one registry dict."""
     registry = {
@@ -490,7 +521,19 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    shas = fetch_configs(RELEASES, ref=args.ref) if args.fetch else None
+    if args.fetch:
+        shas = fetch_configs(RELEASES, ref=args.ref)
+    else:
+        shas = None
+        if args.check and missing_configs():
+            print(
+                "Cannot check: the tree .cfg files this command compiles are not\n"
+                f"present in {HERE}. An installed package ships only the compiled\n"
+                "registry, so there is nothing to compare against. Run --fetch, or\n"
+                "run from a source checkout."
+            )
+            raise SystemExit(2)
+        require_configs()
     registry = build(shas=shas, ref=args.ref if args.fetch else None)
     serialised = json.dumps(registry, indent=1, sort_keys=True)
 
@@ -510,6 +553,14 @@ def main() -> None:
             raise SystemExit(0)
         print("  registry is STALE -- run: sloppy-sdss-access-build-registry --fetch")
         raise SystemExit(1)
+
+    total = sum(len(rel["products"]) for rel in registry["releases"].values())
+    if total == 0:
+        raise SystemExit(
+            "Refusing to write a registry with zero products -- that would brick\n"
+            f"the installation at {args.output}. This should be unreachable; "
+            "please report it."
+        )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(serialised)

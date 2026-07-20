@@ -439,6 +439,10 @@ sloppy-sdss-access-build-registry --fetch --ref 6.1.0  # ...pinned to a tag, bra
 sloppy-sdss-access-build-registry --check              # exit 1 if the registry is stale (CI)
 ```
 
+Without `--fetch`, the command refuses to run when the source configs are absent
+(exit 1), and `--check` reports that it cannot compare (exit 2), rather than
+rebuilding an empty registry over the shipped one.
+
 `--fetch` downloads `data/*.cfg` over the raw GitHub endpoint (no auth, no `gh`
 required) and **follows `base =` chains**, so asking for DR17 also pulls
 DR16…DR8 — 18 configs in total for the current release list. The ref and each
