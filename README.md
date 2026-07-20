@@ -1,9 +1,6 @@
 # sloppy-sdss-access
 
-A prototype replacement for the **SDSS-5 half** of `sdss_access`, built on modern tooling.
-
-Legacy SDSS-1..4 (DR7–DR17) is deliberately out of scope — that stays with
-`sdss_access` + `sdss-tree`, where the SVN/module/plate machinery earns its keep.
+A prototype replacement for `sdss_access`, built on modern tooling.
 
 ```python
 from sloppy_sdss_access import SDSS
