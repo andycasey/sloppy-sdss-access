@@ -5,12 +5,13 @@ weight: 4
 
 # Migrating from `sdss_access`
 
-**Most code needs no changes at all.** The module is called `sdss_access`, so
-`from sloppy_sdss_access import Path` keeps importing, and `full()`, `location()` and `url()`
-were verified **byte-identical** against the real package. `tests/test_compat.py`
-pins the reference values.
+**Porting is a one-line import change.** Swap `from sdss_access import Path` for
+`from sloppy_sdss_access import Path` — the legacy names (`Path`, `SDSSPath`,
+`RsyncAccess`, `AccessError`, …) are re-exported unchanged, and `full()`,
+`location()` and `url()` were verified **byte-identical** against the real package.
+`tests/test_compat.py` pins the reference values.
 
-> Porting is a one-line import change; see below.
+> Only the import line changes; everything after it stays the same. See below.
 
 ## Side by side
 

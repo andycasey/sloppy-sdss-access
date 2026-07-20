@@ -24,16 +24,23 @@ This trips everybody up once, so it is worth stating plainly:
 | | name |
 |---|---|
 | **Distribution** (what you install) | `sloppy-sdss-access` |
-| **Module** (what you import) | `sdss_access` |
+| **Import package** (what you import) | `sloppy_sdss_access` |
 | **Console script** | `sloppy-sdss-access-build-registry` |
+
+The install name has hyphens; the import name has underscores — the usual Python
+convention. There is **no** `sdss_access` module here; that is the *original*
+package, which this one replaces.
 
 ```python
 from sloppy_sdss_access import SDSS      # the native API
 from sloppy_sdss_access import Path      # the legacy-shaped compatibility shim
 ```
 
-Both work. The module name is `sdss_access` *deliberately*, so that code written
-against the original package keeps importing without edits. See
+Compatibility is at the level of *names*, not the module: the symbols the original
+package exported — `Path`, `SDSSPath`, `RsyncAccess`, `AccessError`, … — are
+re-exported from `sloppy_sdss_access` *deliberately*, so porting is a one-line import
+change (`from sdss_access import Path` → `from sloppy_sdss_access import Path`) and
+nothing after the import needs editing. See
 [Migrating]({{< relref "/docs/migrating" >}}).
 
 
