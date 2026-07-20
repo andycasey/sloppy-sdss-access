@@ -2,6 +2,10 @@
 
 A prototype replacement for `sdss_access`, built on modern tooling.
 
+**[Documentation](https://andycasey.github.io/sloppy-sdss-access/)** ·
+[Migrating from `sdss_access`](https://andycasey.github.io/sloppy-sdss-access/docs/migrating/) ·
+[PyPI](https://pypi.org/project/sloppy-sdss-access/)
+
 ```python
 from sloppy_sdss_access import SDSS
 

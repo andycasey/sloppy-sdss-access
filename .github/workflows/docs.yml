@@ -1,0 +1,84 @@
+name: Docs
+
+# Builds the Hugo site and publishes it to GitHub Pages.
+#
+# The theme is vendored under docs/_vendor, so the build needs no network and
+# no Go module resolution. Hugo is pinned: the vendored hugo-book commit
+# declares min_version 0.146.0, and pinning avoids a newer Hugo turning a
+# deprecation into a build failure without warning.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  HUGO_VERSION: "0.152.2"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Hugo ${{ env.HUGO_VERSION }} (extended)
+        run: |
+          url="https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_extended_${HUGO_VERSION}_linux-amd64.deb"
+          curl -sSL -o /tmp/hugo.deb "$url"
+          sudo dpkg -i /tmp/hugo.deb
+          hugo version
+
+      - uses: actions/configure-pages@v5
+        id: pages
+
+      - name: Build
+        working-directory: docs
+        env:
+          # Fail loudly rather than shipping a half-rendered page.
+          HUGO_ENVIRONMENT: production
+        run: |
+          GOPROXY=off hugo \
+            --minify \
+            --cleanDestinationDir \
+            --baseURL "${{ steps.pages.outputs.base_url }}/"
+
+      - name: Sanity-check the output
+        working-directory: docs
+        run: |
+          test -f public/index.html || { echo "::error::no index.html"; exit 1; }
+          pages=$(find public -name index.html | wc -l)
+          echo "built $pages pages"
+          [ "$pages" -ge 10 ] || { echo "::error::only $pages pages built"; exit 1; }
+          # An unrendered shortcode means the theme and content disagree.
+          if grep -rqF '{{<' public --include='*.html'; then
+            echo "::error::unrendered shortcode in output"
+            grep -rlF '{{<' public --include='*.html' | head
+            exit 1
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment

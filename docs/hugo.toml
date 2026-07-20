@@ -1,4 +1,5 @@
-baseURL = "/"
+# Overridden by CI with the real Pages URL; `hugo server` ignores it.
+baseURL = "https://andycasey.github.io/sloppy-sdss-access/"
 title = "sloppy-sdss-access"
 languageCode = "en-us"
 enableGitInfo = false
