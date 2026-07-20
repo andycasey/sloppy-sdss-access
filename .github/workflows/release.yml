@@ -121,7 +121,7 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     # Only on a real tag, and never on a dispatch dry run.
-    if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
+    if: startsWith(github.ref, 'refs/tags/v') && github.event.inputs.dry_run != 'true'
     environment:
       name: pypi
       url: https://pypi.org/project/sloppy-sdss-access/
