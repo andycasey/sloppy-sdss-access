@@ -14,14 +14,17 @@ A prototype replacement for ``sdss_access``, covering SDSS-5 (``sdsswork``,
 DR7-DR12 (SDSS-I/II/III) are inherited from by the DR13+ configs but are not
 offered as releases.
 
-The distribution is ``sloppy-sdss-access`` but the importable module is
-``sdss_access``, so existing code keeps importing::
+The distribution is ``sloppy-sdss-access`` and the importable module is
+``sloppy_sdss_access`` (the usual hyphen-to-underscore change). Porting legacy
+code is a one-line import swap -- the original ``sdss_access`` names are
+re-exported::
 
     from sloppy_sdss_access import Path      # legacy-shaped shim, see sloppy_sdss_access.compat
 
-WARNING: installing this **shadows the real** ``sdss-access``. The two cannot
-coexist in one environment. If you need DR7-DR12, keep the original in a
-separate environment.
+This does *not* install or shadow a module named ``sdss_access``, so the real
+``sdss-access`` can be installed alongside it -- that is how the parity check
+runs. If you need DR7-DR12, use the original, ideally out of process since it
+mutates ``os.environ`` on import.
 """
 
 from .access import Access

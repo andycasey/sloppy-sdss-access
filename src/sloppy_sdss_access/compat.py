@@ -1,8 +1,10 @@
 """Drop-in shims for the legacy ``sdss_access`` API.
 
-``sloppy-sdss-access`` installs a module named ``sdss_access``, so existing code
-that does ``from sloppy_sdss_access import Path`` keeps importing. This module makes
-that code keep *working* where the semantics allow.
+``sloppy-sdss-access`` re-exports the legacy ``sdss_access`` names (``Path``,
+``SDSSPath``, ``RsyncAccess``, ...) from ``sloppy_sdss_access``, so porting is a
+one-line import change (``from sdss_access import Path`` becomes
+``from sloppy_sdss_access import Path``). This module makes that code keep
+*working* where the semantics allow.
 
 It is a compatibility layer, not an emulator. Read the differences below before
 relying on it.
