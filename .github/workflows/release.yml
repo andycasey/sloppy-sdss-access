@@ -194,6 +194,23 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # PEP 740 attestations are signed with the identity of the workflow
+          # that STARTED the run, and PyPI verifies that against the trusted
+          # publisher. On a hand-pushed tag that is release.yml and it matches.
+          # When update-registry.yml calls this workflow it is the top-level
+          # one, so the attestation is stamped
+          #     .../update-registry.yml@refs/heads/main
+          # and PyPI rejects the upload:
+          #     does not match expected Trusted Publisher (release.yml @ ...)
+          #     HTTPError: 400 Bad Request
+          # Authentication is fine either way -- update-registry.yml has its own
+          # trusted publisher -- it is only the signature that is pinned. So the
+          # automated path uploads unattested, and a hand-pushed tag still
+          # attests. Dispatching this workflow at the tag instead of calling it
+          # would keep attestations on both paths, at the cost of the release
+          # being a second, separate run.
+          attestations: ${{ inputs.tag == '' }}
 
   # ------------------------------------------------------------------
   github-release:
