@@ -45926,7 +45926,6 @@
     "APOGEE_CANNON",
     "APOGEE_DATA_S",
     "APOGEE_RC",
-    "GCAM_DATA_S",
     "PLATELIST_DIR",
     "SDSSCORE_DIR",
     "SPECFLAT_DIR",
@@ -46045,6 +46044,22 @@
      ],
      "rooted": true,
      "template": "dr20/vac/bhm/qso-properties/{vers}/DR20Q_prop-{run2d}.fits"
+    },
+    "GravPot16": {
+     "any_of": [],
+     "compression": null,
+     "derivations": [],
+     "formats": {},
+     "keys": [
+      "v_vac"
+     ],
+     "may_be_compressed": true,
+     "optional": [],
+     "required": [
+      "v_vac"
+     ],
+     "rooted": true,
+     "template": "dr20/vac/mwm/orbits/GravPot16-{v_vac}.fits"
     },
     "SDSSV_DA_df": {
      "any_of": [],
@@ -48872,9 +48887,6 @@
     },
     "gcam_lco": {
      "any_of": [],
-     "broken": [
-      "GCAM_DATA_S"
-     ],
      "compression": null,
      "derivations": [],
      "formats": {},
@@ -48886,8 +48898,8 @@
      "required": [
       "mjd"
      ],
-     "rooted": false,
-     "template": "$GCAM_DATA_S/{mjd}/gcam-{mjd}.fits"
+     "rooted": true,
+     "template": "dr20/data/gcam/lco/{mjd}/gcam-{mjd}.fits"
     },
     "gimg_apo": {
      "any_of": [],
@@ -80224,7 +80236,7 @@
    "dr17": "4d918ea61067f48aa5a9f4f4b3b35d3605282362ed4be2bd555231544f807466",
    "dr18": "8ae23d180fadcd3e0a90177689fcb8677d92c1728f66eccd9f6226defcd44249",
    "dr19": "429591fc3f0daf00f853a178190f3183f8cb2723cfeaa147ce2e78918c1c787d",
-   "dr20": "d70ff94dad9000eead7d6ede7d0fdadf806299d6658fd4e2a49ec8f0c41d63d7",
+   "dr20": "f8f2860ccb1f89244d11e707cf9eab891c395fc3620ef3bfbb2b48d76065088e",
    "dr8": "cb74da2ed9c24639fab533705493d8b56513aa8692a5dabb4ae6d5aa3be746b5",
    "dr9": "4ae99ed574e7fb4fb7f609f6639cc3e9960366187a1b52e5742db81927ad6589",
    "ipl1": "cb9ea8b2eee1ddf3621318aa64fa88705938093635a75d280530e552aa5fc388",
@@ -80233,6 +80245,6 @@
    "ipl4": "5a2da1df11cac14c4fa89dba7508151fc8f4a58a5e3ad2264c114bbe7361ab95",
    "sdsswork": "e26df76569c993142db0f8f45f5c1629ac634ff603bce27db6b79ae987c36adb"
   },
-  "ref": "main"
+  "ref": "4.1.4"
  }
 }
