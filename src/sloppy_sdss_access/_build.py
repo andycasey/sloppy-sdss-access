@@ -12,15 +12,22 @@ environment variables, and nothing ever touches ``os.environ``.
 Usage::
 
     sloppy-sdss-access-build-registry                    # rebuild from the vendored cfgs
-    sloppy-sdss-access-build-registry --fetch            # pull the latest cfgs from sdss/tree first
-    sloppy-sdss-access-build-registry --fetch --ref 6.1.0  # ...pinned to a tag/branch/SHA
+    sloppy-sdss-access-build-registry --fetch            # pull sdss/tree's newest release tag
+    sloppy-sdss-access-build-registry --fetch --ref main   # ...or a branch/tag/SHA by name
     sloppy-sdss-access-build-registry --check            # CI: fail if the registry is stale
+    sloppy-sdss-access-build-registry --latest-tag       # print sdss/tree's newest release tag
 
 ``--fetch`` downloads ``data/*.cfg`` from github.com/sdss/tree over the raw
 endpoint (no auth, no gh CLI needed) into ``tools/``, which is where the
 vendored copies live. The provenance of a build -- the ref and the per-file
 SHA256 -- is recorded in the registry under ``"source"`` so you can tell which
 tree revision a given registry.json came from.
+
+``--ref`` defaults to ``latest``, meaning sdss/tree's newest *release tag*
+rather than whatever ``main`` happens to be at that minute. A tag is a thing
+upstream chose to publish and can be named in a bug report; ``main`` is a
+moving target that makes two builds a day apart incomparable. The resolved tag,
+not the word ``latest``, is what lands in ``"source"``.
 """
 
 from __future__ import annotations
@@ -149,6 +156,87 @@ DERIVATION_KEYS = {
 DERIVATION_ANY_OF = {
     "apgprefix": ("telescope", "instrument"),
 }
+
+
+#: A published tree release: "4.1.4". The older "v2_14" scheme is not sorted
+#: against these and is not a candidate for `latest`.
+TAG_RE = re.compile(r"^\d+(?:\.\d+)+$")
+
+#: Files carrying this package's version. Kept in step; release.yml refuses to
+#: publish a tag that disagrees with either.
+VERSION_FILES = (
+    (_REPO / "pyproject.toml", re.compile(r'^(version = ")([^"]+)(")', re.M)),
+    (_PKG / "__init__.py", re.compile(r'^(__version__ = ")([^"]+)(")', re.M)),
+)
+
+
+def latest_tag() -> str:
+    """sdss/tree's newest release tag, by version order.
+
+    Read with ``git ls-remote``, which needs no auth, no API budget, and no
+    clone. Tags are not fetched in version order, so they are sorted here.
+    """
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["git", "ls-remote", "--tags", "--refs", f"https://github.com/{TREE_REPO}"],
+            capture_output=True, text=True, timeout=60, check=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SystemExit(
+            f"cannot list tags of {TREE_REPO} ({exc}). Pass an explicit --ref."
+        ) from None
+
+    return newest_tag(
+        line.rsplit("refs/tags/", 1)[-1] for line in out.splitlines() if "refs/tags/" in line
+    )
+
+
+def newest_tag(tags) -> str:
+    """The highest release tag, by version order rather than string order.
+
+    Tags come back unordered, and string order is wrong twice over: it puts
+    4.0.9 after 4.0.10, and it mixes in tree's older ``v2_14`` scheme, which is
+    not comparable with the current one and is not a candidate.
+    """
+    releases = [t for t in tags if TAG_RE.match(t)]
+    if not releases:
+        raise SystemExit(f"{TREE_REPO} has no release tags to build from; pass --ref")
+    return max(releases, key=lambda t: tuple(int(n) for n in t.split(".")))
+
+
+def next_version(version: str, part: str) -> str:
+    """``("0.1.1", "minor")`` -> ``"0.2.0"``. An empty part leaves it alone."""
+    if not part:
+        return version
+    if part not in ("major", "minor", "patch"):
+        raise ValueError(f"{part!r} is not major, minor or patch")
+    major, minor, patch = (int(n) for n in version.split("."))
+    return {
+        "major": f"{major + 1}.0.0",
+        "minor": f"{major}.{minor + 1}.0",
+        "patch": f"{major}.{minor}.{patch + 1}",
+    }[part]
+
+
+def bump(part: str) -> str:
+    """Raise the version in every file that carries one. Returns the new one."""
+    versions = set()
+    for path, pattern in VERSION_FILES:
+        text = path.read_text()
+        match = pattern.search(text)
+        if not match:
+            raise SystemExit(f"no version line found in {path}")
+        versions.add(match.group(2))
+
+    if len(versions) > 1:
+        raise SystemExit(f"version files disagree before the bump: {sorted(versions)}")
+    new = next_version(versions.pop(), part)
+
+    for path, pattern in VERSION_FILES:
+        path.write_text(pattern.sub(rf"\g<1>{new}\g<3>", path.read_text(), count=1))
+    return new
 
 
 def fetch_configs(releases: list[str], ref: str = "main") -> dict[str, str]:
@@ -509,8 +597,19 @@ def main() -> None:
         help="download the latest cfgs from sdss/tree before building",
     )
     parser.add_argument(
-        "--ref", default="main",
-        help="git ref of sdss/tree to fetch (tag, branch, or SHA). Default: main",
+        "--ref", default="latest",
+        help="git ref of sdss/tree to fetch (tag, branch, or SHA), or 'latest' "
+             "for its newest release tag. Default: latest",
+    )
+    parser.add_argument(
+        "--latest-tag", action="store_true",
+        help="print sdss/tree's newest release tag and exit",
+    )
+    parser.add_argument(
+        "--bump", choices=("major", "minor", "patch"),
+        help="raise this package's version in pyproject.toml and __init__.py, "
+             "then exit. Not a registry operation; here because the registry is "
+             "what usually justifies one",
     )
     parser.add_argument(
         "--check", action="store_true",
@@ -521,7 +620,17 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.latest_tag:
+        print(latest_tag())
+        raise SystemExit(0)
+
+    if args.bump:
+        print(bump(args.bump))
+        raise SystemExit(0)
+
     if args.fetch:
+        # Record the tag that was built, never the word "latest".
+        args.ref = latest_tag() if args.ref == "latest" else args.ref
         shas = fetch_configs(RELEASES, ref=args.ref)
     else:
         shas = None

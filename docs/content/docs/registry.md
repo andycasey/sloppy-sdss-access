@@ -46,16 +46,23 @@ undefined in the release chain mark their products `broken`.
 |---|---|
 | *(none)* | rebuild from the vendored `tools/*.cfg` |
 | `--fetch` | download the latest cfgs from `sdss/tree` first |
-| `--ref REF` | git ref to fetch — tag, branch, or SHA. Default `main` |
+| `--ref REF` | git ref to fetch — tag, branch, SHA, or `latest`. Default `latest` |
 | `--check` | do not write; **exit 1** if the committed registry is stale |
+| `--latest-tag` | print `sdss/tree`'s newest release tag and exit |
+| `--bump PART` | raise this package's version (`major`/`minor`/`patch`) and exit |
 | `--output PATH` | write somewhere other than `src/sloppy_sdss_access/data/registry.json` |
 
 ```bash
 sloppy-sdss-access-build-registry                      # rebuild from vendored cfgs
-sloppy-sdss-access-build-registry --fetch              # pull latest cfgs first
-sloppy-sdss-access-build-registry --fetch --ref 6.1.0  # ...pinned to a tag/branch/SHA
+sloppy-sdss-access-build-registry --fetch              # pull sdss/tree's newest tag
+sloppy-sdss-access-build-registry --fetch --ref main   # ...or a branch/tag/SHA by name
 sloppy-sdss-access-build-registry --check              # CI: exit 1 if stale
 ```
+
+`latest` resolves to the highest release tag by *version* order, read with
+`git ls-remote` (no auth, no API budget). Order matters twice: `4.0.9` sorts
+after `4.0.10` as a string, and tree's older `v2_14` scheme is not comparable
+with the current one, so it is never a candidate.
 
 ### `--fetch` follows inheritance
 
@@ -73,7 +80,7 @@ The ref and each file's SHA256 are recorded under `"source"` in the registry, so
 given `registry.json` says exactly which tree revision produced it:
 
 ```json
-"source": {"ref": "main", "configs": {"dr19": "<sha256>", "dr18": "...", ...}}
+"source": {"ref": "4.1.4", "configs": {"dr19": "<sha256>", "dr18": "...", ...}}
 ```
 
 ### `--check` ignores provenance
@@ -136,7 +143,11 @@ This report is how the `broken` list in
 ### Job 1 — `update`
 
 Runs **weekly** (Mondays 06:00 UTC) and on demand via `workflow_dispatch`, which
-takes a `ref` input so you can build from a specific tree tag. The file-level `on:`
+takes a `ref` input so you can build from a specific tree ref. The default,
+`latest`, means **sdss/tree's newest release tag** — not `main`. A tag is
+something upstream chose to publish, so a registry can name the tree release it
+came from and two builds a day apart are comparable; `main` is a moving target.
+The resolved tag, never the word `latest`, is what lands in `"source"`. The file-level `on:`
 also carries `pull_request` / `push` triggers used by Job 2, so this job is guarded
 to run only on the schedule and manual dispatch:
 
@@ -150,8 +161,8 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "git ref of sdss/tree to build from (tag, branch, or SHA)"
-        default: "main"
+        description: "git ref of sdss/tree to build from (tag, branch, SHA, or 'latest')"
+        default: "latest"
 
 jobs:
   update:
@@ -160,17 +171,58 @@ jobs:
 
 Steps:
 
-1. rebuild the registry with `--fetch --ref <ref>`, teeing to `build.log`;
+1. rebuild the registry with `--fetch --ref <ref>` (default: newest tree tag), teeing to `build.log`;
 2. run `pytest -q` against the new registry;
 3. run the differential check against the real `sdss_access` — installed
    `continue-on-error`, so a broken upstream release cannot wedge the update;
-4. open a **pull request** if the compiled output changed.
+4. re-run `--check`, so nothing lands unless the rebuilt registry agrees with the
+   cfgs that were just fetched;
+5. bump this package's version — see below;
+6. **commit straight to `main`** if the compiled output changed — the build
+   report's per-release counts go in the commit body, the full log is linked to
+   the run.
+
+### The version follows the tree tag
+
+A new sdss/tree tag is a new upstream release. It can move any path in the
+archive, so it earns a **minor** bump here, whether or not that particular tag
+changed much:
+
+| what the rebuild found | bump |
+|---|---|
+| a tree tag this package has not built from before | **minor** — `0.1.1` → `0.2.0` |
+| the same tag, but a different payload (the tag was re-cut upstream) | patch — the change still has to reach PyPI |
+| nothing at all | none; no commit either |
+
+The bump is applied by `sloppy-sdss-access-build-registry --bump minor`, which
+rewrites `pyproject.toml` and `__init__.py` together — `release.yml` refuses to
+publish a tag that disagrees with either.
 
 > [!INFO]
-> **A PR rather than a push is deliberate.** One `tree` edit can move thousands of
-> paths, which deserves a human diff. The build report becomes the PR body
-> (`body-path: build.log`), so the reviewer sees the per-release counts and the broken
-> list without leaving the page.
+> **Committing is not publishing.** The job never tags. A registry sitting on
+> `main` reaches nobody until someone pushes `v0.2.0`, which runs the release
+> workflow — where the differential check against `sdss_access` is *blocking*,
+> unlike the `continue-on-error` copy in this job. Parity is the only check that
+> a tree change did not silently alter path semantics, so it gets the last word
+> before PyPI rather than the first.
+
+> [!WARNING]
+> **This used to open a PR, and it never worked.** The reasoning was sound — one
+> `tree` edit can move thousands of paths, which deserves a human diff — but
+> GitHub refuses the API call unless the repository opts in under
+> *Settings → Actions → General → "Allow GitHub Actions to create and approve pull
+> requests"*. Every scheduled run therefore pushed a `registry-update` branch and
+> then died on `create-pull-request`, so no update ever landed:
+>
+> ```
+> ##[error]GitHub Actions is not permitted to create or approve pull requests.
+> ```
+>
+> Committing directly is what the job can actually do without that setting. The
+> gate is now that nothing is pushed unless `--check` passes *and* the test suite
+> passes against the new registry; the diff is read afterwards, with
+> `git log -p -- src/sloppy_sdss_access/data/registry.json`. Turn the setting on
+> if you would rather have the PR back.
 
 ### Job 2 — `check-consistency`
 
@@ -204,12 +256,13 @@ See [Migrating → how the equivalence was checked]({{< relref "/docs/migrating#
 > **This workflow _is_ the CI.** There is [no other CI]({{< relref "/docs/limitations" >}})
 > for the project beyond this file, so it is worth knowing exactly what it does:
 >
-> * The weekly `update` job stages `src/sloppy_sdss_access/data/registry.json` (and the
->   vendored `tools/*.cfg`) into its PR via `add-paths`, so a rebuilt registry is
->   actually committed.
+> * The weekly `update` job commits `src/sloppy_sdss_access/data/registry.json` and
+>   the vendored cfgs to `main` itself, rebasing if `main` moved while it built.
 > * `check-consistency` has no `if:` guard, so the file-level `pull_request` / `push`
 >   triggers run it on **every PR and every push to `main`** — an edited `.cfg` cannot
->   be merged without a matching rebuild.
+>   be merged without a matching rebuild. It does *not* run on the `update` job's own
+>   push, because commits made with `GITHUB_TOKEN` do not trigger workflows; that is
+>   why `update` runs the same `--check` inline before pushing.
 
 ## Longer term
 

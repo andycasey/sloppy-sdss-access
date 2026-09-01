@@ -1,9 +1,31 @@
 name: Update registry from sdss/tree
 
 # The registry is a build artifact of sdss/tree. This keeps it fresh without
-# anyone having to remember: it rebuilds weekly, and opens a PR only when the
-# compiled output actually changes. A PR (not a direct push) is deliberate --
-# a tree change can alter thousands of paths, and that deserves a human diff.
+# anyone having to remember: it rebuilds weekly from sdss/tree's newest release
+# TAG and commits straight to main, but only when the compiled output actually
+# changes.
+#
+# Tag, not `main`: a tag is something upstream chose to publish, so a registry
+# can say which tree release it came from, and two builds a day apart are
+# comparable. A new tree tag is also what drives this package's version -- see
+# the version step below.
+#
+# The bump is tagged and released too, so a registry update reaches PyPI without
+# anyone having to notice it landed. The release workflow still does the
+# verifying: `verify` runs the blocking parity check against sdss_access, and
+# `publish` is gated on the `pypi` environment, which can require a human
+# reviewer. Nothing here can publish a build that does not pass those.
+#
+# This used to open a PR, on the reasoning that a tree change can alter
+# thousands of paths and deserves a human diff. It never worked: GitHub Actions
+# is not permitted to create pull requests unless the repository opts in
+# (Settings -> Actions -> General -> "Allow GitHub Actions to create and approve
+# pull requests"), so every scheduled run pushed a `registry-update` branch and
+# then failed on the PR call, and the update never landed. Committing directly
+# is the honest version of what the job can actually do. The safety net is that
+# nothing is pushed until the rebuilt registry is self-consistent AND the test
+# suite passes against it; `git log -- src/sloppy_sdss_access/data/registry.json`
+# is where you read the diff afterwards.
 
 on:
   pull_request:
@@ -14,19 +36,21 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "git ref of sdss/tree to build from (tag, branch, or SHA)"
-        default: "main"
+        description: "git ref of sdss/tree to build from (tag, branch, SHA, or 'latest')"
+        default: "latest"
         required: false
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   update:
     # Only rebuild on a schedule or by hand -- not on every PR.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write     # commit the registry, push the tag
+      actions: write      # start release.yml at that tag -- see the tag step
     steps:
       - uses: actions/checkout@v7
 
@@ -40,7 +64,7 @@ jobs:
       - name: Rebuild registry from sdss/tree
         run: |
           python tools/build_registry.py \
-            --fetch --ref "${{ github.event.inputs.ref || 'main' }}" | tee build.log
+            --fetch --ref "${{ github.event.inputs.ref || 'latest' }}" | tee build.log
 
       - name: Run tests against the new registry
         run: pytest -q
@@ -54,22 +78,124 @@ jobs:
           pip install sdss-access || exit 0
           SAS_BASE_DIR=/tmp/sas python tools/parity_check.py | tee parity.log
 
-      - name: Open a PR if the registry changed
-        uses: peter-evans/create-pull-request@v8
-        with:
-          commit-message: "Rebuild registry from sdss/tree@${{ github.event.inputs.ref || 'main' }}"
-          branch: registry-update
-          delete-branch: true
-          title: "Rebuild registry from sdss/tree@${{ github.event.inputs.ref || 'main' }}"
-          body-path: build.log
-          add-paths: |
-            src/sloppy_sdss_access/data/registry.json
-            tools/*.cfg
+      # The registry must agree with the cfgs that were just fetched. This is the
+      # same gate the check-consistency job applies to every PR, run here before
+      # anything reaches main.
+      - name: Check the rebuilt registry is self-consistent
+        run: python tools/build_registry.py --check
+
+      - name: Commit the rebuilt registry to main
+        id: commit
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          REGISTRY=src/sloppy_sdss_access/data/registry.json
+          PATHS="$REGISTRY tools"
+
+          # --porcelain, not `git diff`: a release added upstream arrives as a
+          # new, untracked cfg, which a diff of tracked files would not see.
+          if [ -z "$(git status --porcelain -- $PATHS)" ]; then
+            echo "Registry unchanged; nothing to commit."
+            exit 0
+          fi
+
+          # The version follows the tree tag. A new tag is a new upstream
+          # release: it can move any path in the archive, so it earns a minor
+          # bump whether or not this particular tag changed much. Same tag with
+          # a different payload means the tag was moved under us -- rare, but
+          # the change still has to reach PyPI, so it takes a patch.
+          ref() { python -c "import json,sys; print(json.load(sys.stdin)['source'].get('ref') or '')"; }
+          OLD_REF="$(git show "HEAD:$REGISTRY" | ref)"
+          NEW_REF="$(ref < "$REGISTRY")"
+          if [ "$OLD_REF" != "$NEW_REF" ]; then PART=minor; else PART=patch; fi
+          VERSION="$(python tools/build_registry.py --bump "$PART")"
+          echo "sdss/tree ${OLD_REF:-none} -> ${NEW_REF} : ${PART} bump -> ${VERSION}"
+
+          {
+            echo "Rebuild registry from sdss/tree@${NEW_REF} (v${VERSION})"
+            echo
+            echo "sdss/tree ${OLD_REF:-none} -> ${NEW_REF}, so ${PART} bump to ${VERSION}."
+            echo
+            grep " products" build.log || true
+            echo
+            echo "Full build log: ${RUN_URL}"
+          } > commit-message.txt
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- $PATHS pyproject.toml src/sloppy_sdss_access/__init__.py
+          git commit -F commit-message.txt
+
+          # main can move while a build runs; rebase onto it rather than failing.
+          # The `if` keeps `set -e` from killing the loop on the first miss.
+          pushed=
+          for attempt in 1 2 3; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              pushed=1
+              break
+            fi
+            git rebase --abort 2>/dev/null || true
+            sleep $((attempt * 5))
+          done
+          [ -n "$pushed" ] || exit 1
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tree_ref=${NEW_REF}" >> "$GITHUB_OUTPUT"
+
+      # A tag is what release.yml publishes from, and its message becomes the
+      # GitHub release notes -- so it is written to be read, not just to exist.
+      - name: Tag the bump and start the release
+        if: steps.commit.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.commit.outputs.version }}
+          TREE_REF: ${{ steps.commit.outputs.tree_ref }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # Belt and braces: the step's `if` already skips an empty version,
+          # and a tag literally named "v" is not a mistake worth making twice.
+          [ -n "${VERSION}" ] || { echo "::error::no version to tag"; exit 1; }
+          TAG="v${VERSION}"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::${TAG} already exists. A PyPI version cannot be reused;"
+            echo "::error::sort out the duplicate by hand rather than moving the tag."
+            exit 1
+          fi
+
+          {
+            echo "${TAG}"
+            echo
+            echo "Registry rebuilt from sdss/tree@${TREE_REF}."
+            echo
+            grep " products" build.log || true
+            echo
+            echo "Build log: ${RUN_URL}"
+          } > tag-message.txt
+
+          git tag -a "${TAG}" -F tag-message.txt
+          git push origin "${TAG}"
+
+          # The tag alone will NOT start release.yml: GitHub does not run
+          # workflows for events created with GITHUB_TOKEN, which is what
+          # sank the pull-request version of this job. workflow_dispatch is
+          # the documented exception, and dispatching AT THE TAG gives
+          # release.yml the `refs/tags/v*` ref its publish job is gated on.
+          if ! gh workflow run release.yml --ref "${TAG}" -f dry_run=false; then
+            echo "::error::${TAG} is pushed but release.yml did not start."
+            echo "::error::Run it by hand: gh workflow run release.yml --ref ${TAG} -f dry_run=false"
+            exit 1
+          fi
+          echo "Released ${TAG}: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/release.yml"
 
   # Separately, fail CI on any PR whose committed registry does not match its
   # vendored cfgs -- i.e. someone edited a cfg but forgot to rebuild. Unlike the
   # `update` job, this has no `if:` guard, so the top-level `pull_request` / `push`
-  # triggers run it on every PR and every push to main.
+  # triggers run it on every PR and every push to main. (Not on the `update`
+  # job's own push: commits made with GITHUB_TOKEN do not trigger workflows, so
+  # there is no loop -- which is why that job runs the same check inline.)
   check-consistency:
     runs-on: ubuntu-latest
     steps:
