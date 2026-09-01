@@ -164,13 +164,29 @@ Steps:
 2. run `pytest -q` against the new registry;
 3. run the differential check against the real `sdss_access` — installed
    `continue-on-error`, so a broken upstream release cannot wedge the update;
-4. open a **pull request** if the compiled output changed.
+4. re-run `--check`, so nothing lands unless the rebuilt registry agrees with the
+   cfgs that were just fetched;
+5. **commit straight to `main`** if the compiled output changed — the build
+   report's per-release counts go in the commit body, the full log is linked to
+   the run.
 
-> [!INFO]
-> **A PR rather than a push is deliberate.** One `tree` edit can move thousands of
-> paths, which deserves a human diff. The build report becomes the PR body
-> (`body-path: build.log`), so the reviewer sees the per-release counts and the broken
-> list without leaving the page.
+> [!WARNING]
+> **This used to open a PR, and it never worked.** The reasoning was sound — one
+> `tree` edit can move thousands of paths, which deserves a human diff — but
+> GitHub refuses the API call unless the repository opts in under
+> *Settings → Actions → General → "Allow GitHub Actions to create and approve pull
+> requests"*. Every scheduled run therefore pushed a `registry-update` branch and
+> then died on `create-pull-request`, so no update ever landed:
+>
+> ```
+> ##[error]GitHub Actions is not permitted to create or approve pull requests.
+> ```
+>
+> Committing directly is what the job can actually do without that setting. The
+> gate is now that nothing is pushed unless `--check` passes *and* the test suite
+> passes against the new registry; the diff is read afterwards, with
+> `git log -p -- src/sloppy_sdss_access/data/registry.json`. Turn the setting on
+> if you would rather have the PR back.
 
 ### Job 2 — `check-consistency`
 
@@ -204,12 +220,13 @@ See [Migrating → how the equivalence was checked]({{< relref "/docs/migrating#
 > **This workflow _is_ the CI.** There is [no other CI]({{< relref "/docs/limitations" >}})
 > for the project beyond this file, so it is worth knowing exactly what it does:
 >
-> * The weekly `update` job stages `src/sloppy_sdss_access/data/registry.json` (and the
->   vendored `tools/*.cfg`) into its PR via `add-paths`, so a rebuilt registry is
->   actually committed.
+> * The weekly `update` job commits `src/sloppy_sdss_access/data/registry.json` and
+>   the vendored cfgs to `main` itself, rebasing if `main` moved while it built.
 > * `check-consistency` has no `if:` guard, so the file-level `pull_request` / `push`
 >   triggers run it on **every PR and every push to `main`** — an edited `.cfg` cannot
->   be merged without a matching rebuild.
+>   be merged without a matching rebuild. It does *not* run on the `update` job's own
+>   push, because commits made with `GITHUB_TOKEN` do not trigger workflows; that is
+>   why `update` runs the same `--check` inline before pushing.
 
 ## Longer term
 

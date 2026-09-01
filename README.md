@@ -464,9 +464,11 @@ file's SHA256 are recorded under `"source"` in the registry, so any given
 
 `.github/workflows/update-registry.yml` automates this: it rebuilds weekly (and
 on demand, with a `ref` input), runs the tests and the differential check
-against `sdss_access`, and opens a **pull request** only if the compiled output
-changed. A PR rather than a push is deliberate — one tree edit can move
-thousands of paths, which deserves a human diff. A second job fails CI on any PR
+against `sdss_access`, and **commits to `main`** only if the compiled output
+changed. It opened a pull request until GitHub refused — Actions cannot create
+PRs unless the repository opts in — so the human diff moved from a review to
+`git log -p -- src/sloppy_sdss_access/data/registry.json`, gated on the rebuilt
+registry passing `--check` and the test suite. A second job fails CI on any PR
 whose committed registry does not match its vendored cfgs, so an edited `.cfg`
 cannot be merged without a rebuild.
 

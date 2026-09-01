@@ -1,9 +1,19 @@
 name: Update registry from sdss/tree
 
 # The registry is a build artifact of sdss/tree. This keeps it fresh without
-# anyone having to remember: it rebuilds weekly, and opens a PR only when the
-# compiled output actually changes. A PR (not a direct push) is deliberate --
-# a tree change can alter thousands of paths, and that deserves a human diff.
+# anyone having to remember: it rebuilds weekly and commits straight to main,
+# but only when the compiled output actually changes.
+#
+# This used to open a PR, on the reasoning that a tree change can alter
+# thousands of paths and deserves a human diff. It never worked: GitHub Actions
+# is not permitted to create pull requests unless the repository opts in
+# (Settings -> Actions -> General -> "Allow GitHub Actions to create and approve
+# pull requests"), so every scheduled run pushed a `registry-update` branch and
+# then failed on the PR call, and the update never landed. Committing directly
+# is the honest version of what the job can actually do. The safety net is that
+# nothing is pushed until the rebuilt registry is self-consistent AND the test
+# suite passes against it; `git log -- src/sloppy_sdss_access/data/registry.json`
+# is where you read the diff afterwards.
 
 on:
   pull_request:
@@ -20,7 +30,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   update:
@@ -54,22 +63,56 @@ jobs:
           pip install sdss-access || exit 0
           SAS_BASE_DIR=/tmp/sas python tools/parity_check.py | tee parity.log
 
-      - name: Open a PR if the registry changed
-        uses: peter-evans/create-pull-request@v8
-        with:
-          commit-message: "Rebuild registry from sdss/tree@${{ github.event.inputs.ref || 'main' }}"
-          branch: registry-update
-          delete-branch: true
-          title: "Rebuild registry from sdss/tree@${{ github.event.inputs.ref || 'main' }}"
-          body-path: build.log
-          add-paths: |
-            src/sloppy_sdss_access/data/registry.json
-            tools/*.cfg
+      # The registry must agree with the cfgs that were just fetched. This is the
+      # same gate the check-consistency job applies to every PR, run here before
+      # anything reaches main.
+      - name: Check the rebuilt registry is self-consistent
+        run: python tools/build_registry.py --check
+
+      - name: Commit the rebuilt registry to main
+        env:
+          REF: ${{ github.event.inputs.ref || 'main' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          PATHS="src/sloppy_sdss_access/data/registry.json tools"
+          # --porcelain, not `git diff`: a release added upstream arrives as a
+          # new, untracked cfg, which a diff of tracked files would not see.
+          if [ -z "$(git status --porcelain -- $PATHS)" ]; then
+            echo "Registry unchanged; nothing to commit."
+            exit 0
+          fi
+
+          {
+            echo "Rebuild registry from sdss/tree@${REF}"
+            echo
+            grep " products" build.log || true
+            echo
+            echo "Full build log: ${RUN_URL}"
+          } > commit-message.txt
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- $PATHS
+          git commit -F commit-message.txt
+
+          # main can move while a build runs; rebase onto it rather than failing.
+          # The `if` keeps `set -e` from killing the loop on the first miss.
+          for attempt in 1 2 3; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              exit 0
+            fi
+            git rebase --abort 2>/dev/null || true
+            sleep $((attempt * 5))
+          done
+          exit 1
 
   # Separately, fail CI on any PR whose committed registry does not match its
   # vendored cfgs -- i.e. someone edited a cfg but forgot to rebuild. Unlike the
   # `update` job, this has no `if:` guard, so the top-level `pull_request` / `push`
-  # triggers run it on every PR and every push to main.
+  # triggers run it on every PR and every push to main. (Not on the `update`
+  # job's own push: commits made with GITHUB_TOKEN do not trigger workflows, so
+  # there is no loop -- which is why that job runs the same check inline.)
   check-consistency:
     runs-on: ubuntu-latest
     steps:
