@@ -6,9 +6,15 @@ depends on is tested against a fixed tag list instead.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from sloppy_sdss_access import _build
+
+REPO = Path(__file__).parent.parent
 
 
 # ----------------------------------------------------------------------
@@ -101,3 +107,41 @@ def test_the_shipped_version_files_agree():
         assert match, path
         found.add(match.group(2))
     assert len(found) == 1, found
+
+
+# ----------------------------------------------------------------------
+# running with nothing installed
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    not (REPO / "tools" / "build_registry.py").exists(),
+    reason="needs a source checkout",
+)
+def test_the_shim_runs_without_the_runtime_dependencies(tmp_path):
+    """The registry poll runs it on a bare runner, with nothing pip-installed.
+
+    Regression test: the shim used to do `from sloppy_sdss_access._build import
+    main`, which executes the package __init__ -- which imports fsspec. That is
+    fine for the console script (an installed package has its dependencies) and
+    fatal for a checkout that has none, which is exactly where CI runs it.
+    """
+    # A directory whose `fsspec` raises, placed first on the path: the same
+    # failure a runner with no dependencies produces, without uninstalling.
+    (tmp_path / "fsspec.py").write_text('raise ImportError("fsspec is not installed")\n')
+
+    proc = subprocess.run(
+        [sys.executable, str(REPO / "tools" / "build_registry.py"), "--help"],
+        capture_output=True, text=True, env={"PYTHONPATH": str(tmp_path), "PATH": "/usr/bin:/bin"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "--latest-tag" in proc.stdout
+
+    # And prove the stand-in would really have broken the old import path.
+    broken = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, 'src'); import sloppy_sdss_access"],
+        capture_output=True, text=True, cwd=REPO,
+        env={"PYTHONPATH": str(tmp_path), "PATH": "/usr/bin:/bin"},
+    )
+    assert broken.returncode != 0 and "fsspec" in broken.stderr
