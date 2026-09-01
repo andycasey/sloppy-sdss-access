@@ -374,9 +374,13 @@ Two things it cannot do, both because the information is not in the path:
   is not invertible. You get the longest surviving fragment.
 
 The compiled regex is available as `dr19.pattern(species)` if you would rather
-match a few million filenames yourself, and `Access.glob()` uses all of this to
-[return parameter dicts]({{< relref "/docs/remote-access" >}}#what-a-glob-hands-back)
-alongside the URIs it finds.
+match a few million filenames yourself. Mapping it over what
+[`Access.glob()`]({{< relref "/docs/remote-access" >}}#getting-the-parameters-back)
+finds turns a list of URIs into a list of parameter dicts:
+
+```python
+[dr19.extract("mwmStar", url) for url in a.glob("mwmStar", sdss_id="*")]
+```
 
 ## Introspection
 

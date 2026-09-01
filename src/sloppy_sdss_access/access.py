@@ -32,61 +32,9 @@ from .auth import Credentials, resolve
 from .paths import COMPRESSION_SUFFIXES, MIRROR_HOST, SAS_HOST, SDSS
 from .registry import load
 
-__all__ = ["Access", "Match"]
+__all__ = ["Access"]
 
 DEFAULT_CACHE = Path(os.environ.get("XDG_CACHE_HOME", "~/.cache")) / "sloppy_sdss_access"
-
-
-class Match(str):
-    """One glob hit: the URI, and the keys that would have produced it.
-
-    A ``Match`` *is* the URI -- it subclasses :class:`str`, so it goes straight
-    into ``fits.open``, ``os.path.join``, or a comparison, and code written
-    against the old ``list[str]`` return keeps working. The keys ride along::
-
-        hits = access.glob("mwmStar", sdss_id="*")
-        hits[0]                       # 'https://.../mwmStar-0.6.0-125678.fits'
-        hits[0].to_dict()             # {'v_astra': '0.6.0', 'sdss_id': 125678}
-        [h.to_dict() for h in hits]   # -> Table(rows=...) / DataFrame
-
-    This answers sdss/sdss_access#97: a glob tells you *which* products exist,
-    and the parameters are what you actually wanted -- reading them back out of
-    the filename with a regex of your own is the step being removed here.
-    """
-
-    __slots__ = ("species", "release", "values")
-
-    def __new__(cls, uri: str, species: str, release: str, values: dict[str, Any]):
-        self = super().__new__(cls, uri)
-        self.species = species
-        self.release = release
-        self.values = values
-        return self
-
-    @property
-    def uri(self) -> str:
-        """The URI, as a plain :class:`str`."""
-        return str(self)
-
-    def to_dict(self, uri: bool = False) -> dict[str, Any]:
-        """The key values, as a plain dict. ``uri=True`` adds the URI itself.
-
-        Values are typed as :meth:`~sloppy_sdss_access.paths.SDSS.extract`
-        types them -- ints where that round-trips, strings otherwise -- so the
-        result can be fed straight back into ``path()``/``fetch()``.
-        """
-        values = dict(self.values)
-        if uri:
-            values["uri"] = str(self)
-        return values
-
-    def __reduce__(self):
-        """Pickle the keys along with the string, so a Match survives a Pool."""
-        return (Match, (str(self), self.species, self.release, self.values))
-
-    def __repr__(self) -> str:
-        keys = ", ".join(f"{k}={v!r}" for k, v in self.values.items())
-        return f"Match({str(self)!r}, {self.species}: {keys})"
 
 
 @dataclass(slots=True)
@@ -393,35 +341,25 @@ class Access:
 
     # ------------------------------------------------------------------
 
-    def glob(self, species: str, **keys: Any) -> list[Match]:
+    def glob(self, species: str, **keys: Any) -> list[str]:
         """Expand a product whose keys contain ``*`` wildcards.
 
-        Each hit is a :class:`Match`: the URI, plus the key values read back
-        out of it, so you never have to re-derive them with a regex of your
-        own (sdss/sdss_access#97)::
+        Wildcards are pushed through derivations where the shape of the derived
+        segment allows it -- ``sdss_id="*"`` globs the two ``@sdss_id_groups|``
+        directories as ``*/*`` -- so you do not have to know the grouping
+        scheme to glob across it.
 
-            [m.to_dict() for m in access.glob("mwmStar", sdss_id="*")]
+        To get the key values back out of what you find, hand each hit to
+        :meth:`~sloppy_sdss_access.paths.SDSS.extract` (sdss/sdss_access#97)::
+
+            urls = access.glob("mwmStar", sdss_id="*")
+            [dr19.extract("mwmStar", url) for url in urls]
             [{'v_astra': '0.6.0', 'sdss_id': 125678}, ...]
 
-        Wildcards are pushed through derivations where the shape of the
-        derived segment allows it -- ``sdss_id="*"`` globs the two
-        ``@sdss_id_groups|`` directories as ``*/*`` -- so you do not have to
-        know the grouping scheme to glob across it.
-
         Note this uses :meth:`uri`, **not** :meth:`resolve_uri`, so no
-        compression probing is applied; the pattern matches either way.
+        compression probing is applied; ``extract`` matches either way.
         """
-        supplied = {k: v for k, v in keys.items() if "*" not in str(v)}
-        hits = self.fs.glob(self.uri(species, **keys))
-        return [
-            Match(
-                hit,
-                species,
-                self.paths.release,
-                {**supplied, **(self.paths.extract(species, hit) or {})},
-            )
-            for hit in hits
-        ]
+        return self.fs.glob(self.uri(species, **keys))
 
     def __repr__(self) -> str:
         return (

@@ -10,7 +10,7 @@ import re
 
 import pytest
 
-from sloppy_sdss_access import SDSS, Access, Match, known_releases
+from sloppy_sdss_access import SDSS, Access, known_releases
 
 dr19 = SDSS("dr19")
 
@@ -116,13 +116,6 @@ def test_pattern_is_compiled_once_per_template():
     assert SDSS("dr19").pattern("mwmStar") is SDSS("dr19").pattern("mwmStar")
 
 
-def test_match_survives_a_pickle():
-    import pickle
-
-    m = Match("s3://b/x.fits", "mwmStar", "dr19", {"sdss_id": 1})
-    assert pickle.loads(pickle.dumps(m)).to_dict() == {"sdss_id": 1}
-
-
 # ----------------------------------------------------------------------
 # every product, every release
 # ----------------------------------------------------------------------
@@ -216,54 +209,33 @@ def access(monkeypatch):
     return _make
 
 
-def test_glob_returns_matches_that_are_still_strings(access):
-    url = dr19.url("mwmStar", sdss_id=125678)
-    a, _ = access([url])
-
-    (hit,) = a.glob("mwmStar", sdss_id="*")
-
-    assert isinstance(hit, Match) and isinstance(hit, str)
-    assert hit == url
-    assert hit.endswith(".fits")
-    assert hit.uri == url
-
-
-def test_glob_gives_back_a_list_of_dicts(access):
+def test_glob_returns_plain_strings(access):
     urls = [dr19.url("mwmStar", sdss_id=i) for i in (125678, 125679)]
     a, _ = access(urls)
 
-    assert [m.to_dict() for m in a.glob("mwmStar", sdss_id="*")] == [
+    hits = a.glob("mwmStar", sdss_id="*")
+
+    assert hits == urls
+    assert all(type(hit) is str for hit in hits)
+
+
+def test_glob_hits_extract_into_dicts(access):
+    """The list of dicts asked for in #97, one extract() per hit."""
+    urls = [dr19.url("mwmStar", sdss_id=i) for i in (125678, 125679)]
+    a, _ = access(urls)
+
+    hits = a.glob("mwmStar", sdss_id="*")
+
+    assert [dr19.extract("mwmStar", hit) for hit in hits] == [
         {"v_astra": "0.6.0", "sdss_id": 125678},
         {"v_astra": "0.6.0", "sdss_id": 125679},
     ]
 
 
-def test_glob_can_include_the_uri_in_the_dict(access):
-    url = dr19.url("mwmStar", sdss_id=125678)
-    a, _ = access([url])
-
-    (hit,) = a.glob("mwmStar", sdss_id="*")
-    assert hit.to_dict(uri=True) == {
-        "v_astra": "0.6.0",
-        "sdss_id": 125678,
-        "uri": url,
-    }
-
-
-def test_glob_values_can_be_fed_straight_back(access):
+def test_extracted_values_can_be_fed_straight_back(access):
     a, _ = access([dr19.url("mwmStar", sdss_id=125678)])
     (hit,) = a.glob("mwmStar", sdss_id="*")
-    assert dr19.url("mwmStar", **hit.to_dict()) == hit
-
-
-def test_glob_keeps_supplied_keys_the_path_cannot_show(access):
-    """'ap' is apo25m or apo1m, so the telescope survives only because we said it."""
-    url = dr19.url("ap1D", instrument="apogee-n", mjd=59797, chip="a", num=42)
-    a, _ = access([url])
-
-    (hit,) = a.glob("ap1D", instrument="apogee-n", mjd=59797, chip="a", num="*")
-    assert hit.to_dict()["instrument"] == "apogee-n"
-    assert hit.to_dict()["num"] == 42
+    assert dr19.url("mwmStar", **dr19.extract("mwmStar", hit)) == hit
 
 
 def test_glob_expands_a_wildcard_through_a_derivation(access):
@@ -276,13 +248,7 @@ def test_glob_expands_a_wildcard_through_a_derivation(access):
     ]
 
 
-def test_glob_still_raises_when_there_is_no_wildcard_to_excuse_it():
+def test_a_derivation_still_raises_when_there_is_no_wildcard_to_excuse_it():
     """A derivation blowing up on real keys is a real error, not a glob."""
     with pytest.raises(ValueError, match="not a known APOGEE instrument"):
         dr19.path("ap1D", instrument="not-an-instrument", mjd=59797, chip="a", num=42)
-
-
-def test_glob_repr_shows_the_keys(access):
-    a, _ = access([dr19.url("mwmStar", sdss_id=125678)])
-    (hit,) = a.glob("mwmStar", sdss_id="*")
-    assert "mwmStar" in repr(hit) and "sdss_id=125678" in repr(hit)

@@ -27,7 +27,7 @@ runs. If you need DR7-DR12, use the original, ideally out of process since it
 mutates ``os.environ`` on import.
 """
 
-from .access import Access, Match
+from .access import Access
 from .auth import AuthError, Credentials
 from .compat import AccessError, CurlAccess, HttpAccess, Path, RsyncAccess, SDSSPath
 from .paths import (
@@ -44,7 +44,6 @@ __version__ = "0.1.1"
 __all__ = [
     "SDSS",
     "Access",
-    "Match",
     # Legacy-compatible names, so `from sloppy_sdss_access import Path` keeps working.
     # See sloppy_sdss_access.compat for exactly how far the compatibility goes.
     "Path",

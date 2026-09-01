@@ -313,9 +313,9 @@ Requires the `[s3]` extra. This is
 a.glob("specLite", fieldid="*", mjd=59146, catalogid=4375924756)
 ```
 
-Expands wildcards in keys via the filesystem. Note this uses `uri()`, **not**
-`resolve_uri()`, so no compression probing is applied — the pattern matches
-either way.
+Expands wildcards in keys via the filesystem, and returns a list of URIs. Note
+this uses `uri()`, **not** `resolve_uri()`, so no compression probing is
+applied — `extract()` matches either way.
 
 Wildcards are pushed through derivations, so you do not have to know a grouping
 scheme in order to glob across it. `sdss_id` groups into *two* directories, and
@@ -329,42 +329,26 @@ a.uri("mwmStar", sdss_id="*")
 'https://data.sdss.org/sas/dr19/spectro/astra/0.6.0/spectra/star/*/*/mwmStar-0.6.0-*.fits'
 ```
 
-### What a glob hands back
+### Getting the parameters back
 
-Each hit is a `Match`, which **is** the URI — it subclasses `str`, so it goes
-straight into `fits.open()` or a comparison — carrying the keys that produced
-it:
+A glob tells you *which* products exist; the parameters are usually what you
+actually wanted. Hand each hit to
+[`extract()`]({{< relref "/docs/path-resolution" >}}#reading-a-path-backwards):
 
 ```python
-hits = a.glob("mwmStar", sdss_id="*")
-
-hits[0]
-hits[0].to_dict()
-[h.to_dict() for h in hits]          # -> Table(rows=...) / DataFrame
+urls = a.glob("mwmStar", sdss_id="*")
+[dr19.extract("mwmStar", url) for url in urls]      # -> Table(rows=...) / DataFrame
 ```
 
 ```
-'https://data.sdss.org/sas/dr19/spectro/astra/0.6.0/spectra/star/56/78/mwmStar-0.6.0-125678.fits'
-{'v_astra': '0.6.0', 'sdss_id': 125678}
-[{'v_astra': '0.6.0', 'sdss_id': 125678}, ...]
+[{'v_astra': '0.6.0', 'sdss_id': 125678},
+ {'v_astra': '0.6.0', 'sdss_id': 125679}, ...]
 ```
 
-| on a `Match` | |
-|---|---|
-| `str(m)`, `m.uri` | the URI |
-| `m.to_dict()` | the key values |
-| `m.to_dict(uri=True)` | the key values, plus a `uri` entry |
-| `m.values` | the same dict, unwrapped |
-| `m.species`, `m.release` | what was globbed, and where |
-
-Values are typed so they can be fed straight back in — `dr19.url("mwmStar",
-**m.to_dict())` returns `m`. Keys you supplied that the path cannot show (an
-APOGEE `telescope`, which the path writes only as `ap`) are carried through
-from the call.
-
-This is [#97](https://github.com/sdss/sdss_access/issues/97): a glob tells you
-*which* products exist, but the parameters are what you actually wanted, and
-re-deriving them with a regex of your own is the step being removed.
+Values are typed so they can be fed straight back in —
+`dr19.url("mwmStar", **dr19.extract("mwmStar", url))` returns `url`. This is
+[#97](https://github.com/sdss/sdss_access/issues/97); re-deriving those keys
+with a regex of your own is the step being removed.
 
 ## What is not here
 
