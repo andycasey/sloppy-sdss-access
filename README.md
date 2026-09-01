@@ -465,18 +465,45 @@ file's SHA256 are recorded under `"source"` in the registry, so any given
 `.github/workflows/update-registry.yml` automates this: it checks hourly for a
 new **sdss/tree release tag** (one `git ls-remote`, no install) — or starts
 immediately if `sdss/tree` pings it, which a workflow at their end can do with
-`repository_dispatch` — and rebuilds from it (or any `ref` you dispatch it with), runs the
-tests and the differential check against `sdss_access`, and **commits to `main`**
-only if the compiled output changed. A tree tag this package has not built from
-before earns a **minor version bump** — a new upstream release can move any path
-in the archive — while a re-cut tag takes a patch. It then tags that bump and
-calls `release.yml`, so the rebuild goes out to PyPI in the same run, through
-the same verify-and-publish path a hand-pushed tag takes. It opened a pull request until GitHub refused — Actions cannot create
-PRs unless the repository opts in — so the human diff moved from a review to
+`repository_dispatch` — then rebuilds, runs the tests and the differential check
+against `sdss_access`, and **commits to `main`** only if the compiled output
+changed. A tree tag this package has not built from before earns a **minor
+version bump** — a new upstream release can move any path in the archive —
+while a re-cut tag takes a patch. It then tags that bump and calls `release.yml`,
+so the rebuild goes out to PyPI in the same run, through the same
+verify-and-publish path a hand-pushed tag takes.
+
+It opened a pull request until GitHub refused — Actions cannot create PRs unless
+the repository opts in — so the human diff moved from a review to
 `git log -p -- src/sloppy_sdss_access/data/registry.json`, gated on the rebuilt
 registry passing `--check` and the test suite. A second job fails CI on any PR
 whose committed registry does not match its vendored cfgs, so an edited `.cfg`
 cannot be merged without a rebuild.
+
+### Running it by hand
+
+Waiting for the hour is optional:
+
+```bash
+# Rebuild and report: the tree ref change, the version it would become, and the
+# diff. Commits nothing, tags nothing, publishes nothing. This is the default.
+gh workflow run update-registry.yml --ref main
+
+# The real thing: commit to main, tag, and publish to PyPI.
+gh workflow run update-registry.yml --ref main -f dry_run=false
+
+# Pin the tree ref instead of taking its newest tag.
+gh workflow run update-registry.yml --ref main -f ref=4.1.3 -f dry_run=false
+
+# Watch whichever you started.
+gh run watch "$(gh run list -w update-registry.yml -L1 --json databaseId -q '.[0].databaseId')"
+```
+
+`--ref main` is this repository's branch, not `sdss/tree`'s — the two are
+unrelated, and the job refuses to commit unless it is running on the default
+branch, because `git push origin HEAD:main` from a feature branch would push
+that whole branch to `main`. The tree ref is the `-f ref=` input, and defaults
+to `latest`.
 
 ## Layout
 
