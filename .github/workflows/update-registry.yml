@@ -38,7 +38,10 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: "0 6 * * 1"     # Mondays, 06:00 UTC
+    # Hourly. GitHub cannot subscribe to another repository's events, so a new
+    # sdss/tree tag can only be noticed by looking -- and the `poll` job below
+    # makes looking cost one `git ls-remote`, so looking often is free.
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       ref:
@@ -50,9 +53,43 @@ permissions:
   contents: read
 
 jobs:
-  update:
-    # Only rebuild on a schedule or by hand -- not on every PR.
+  # Has sdss/tree tagged something we have not built from? Answering costs one
+  # `git ls-remote` and no install -- tools/build_registry.py puts src/ on
+  # sys.path itself and imports nothing outside the standard library -- so the
+  # 8,759 hourly runs a year that find nothing cost seconds each, and the one
+  # that finds a tag starts the rebuild within the hour.
+  poll:
+    # Not on every PR; those trigger check-consistency only.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.poll.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - id: poll
+        run: |
+          set -euo pipefail
+          LATEST="$(python tools/build_registry.py --latest-tag)"
+          BUILT="$(python -c "
+          import json
+          print(json.load(open('src/sloppy_sdss_access/data/registry.json'))['source'].get('ref') or '')")"
+          echo "sdss/tree latest tag: ${LATEST}   registry built from: ${BUILT:-nothing}"
+          if [ "$LATEST" = "$BUILT" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Up to date; nothing to rebuild."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::sdss/tree ${BUILT:-nothing} -> ${LATEST}; rebuilding."
+          fi
+
+  update:
+    needs: poll
+    # A new tree tag, or someone asking by hand (which may name any ref, and
+    # means run whatever the poll thought).
+    if: needs.poll.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write     # commit the registry, push the tag

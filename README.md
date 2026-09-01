@@ -462,8 +462,8 @@ DR16…DR8 — 18 configs in total for the current release list. The ref and eac
 file's SHA256 are recorded under `"source"` in the registry, so any given
 `registry.json` says which tree revision produced it.
 
-`.github/workflows/update-registry.yml` automates this: it rebuilds weekly from
-**sdss/tree's newest release tag** (or any `ref` you dispatch it with), runs the
+`.github/workflows/update-registry.yml` automates this: it checks hourly for a
+new **sdss/tree release tag** (one `git ls-remote`, no install) and rebuilds from it (or any `ref` you dispatch it with), runs the
 tests and the differential check against `sdss_access`, and **commits to `main`**
 only if the compiled output changed. A tree tag this package has not built from
 before earns a **minor version bump** — a new upstream release can move any path

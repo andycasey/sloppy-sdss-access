@@ -142,8 +142,23 @@ This report is how the `broken` list in
 
 ### Job 1 — `update`
 
-Runs **weekly** (Mondays 06:00 UTC) and on demand via `workflow_dispatch`, which
-takes a `ref` input so you can build from a specific tree ref. The default,
+Runs **hourly** and on demand via `workflow_dispatch`, which takes a `ref` input
+so you can build from a specific tree ref.
+
+Hourly, because GitHub cannot subscribe to another repository's events: a new
+`sdss/tree` tag can only be noticed by looking. So a `poll` job looks first, and
+looking is cheap — one `git ls-remote` against `sdss/tree`, compared with the
+ref recorded in the committed registry, with **no install at all**
+(`tools/build_registry.py` puts `src/` on `sys.path` itself and imports nothing
+outside the standard library). It runs in under a second, and the `update` job
+below is gated on its answer, so the ~8,759 runs a year that find nothing cost
+seconds each and the one that finds a tag starts the rebuild within the hour.
+
+> [!INFO]
+> **The only push-based alternative is `repository_dispatch`**, which needs a
+> workflow *inside* `sdss/tree` POSTing to this repository with a token that has
+> write access here. That means changing another team's repository and making it
+> depend on this one. Polling is worse in theory and much better in practice. The default,
 `latest`, means **sdss/tree's newest release tag** — not `main`. A tag is
 something upstream chose to publish, so a registry can name the tree release it
 came from and two builds a day apart are comparable; `main` is a moving target.
