@@ -55,6 +55,10 @@ on:
         description: "git ref of sdss/tree to build from (tag, branch, SHA, or 'latest')"
         default: "latest"
         required: false
+      dry_run:
+        description: "Rebuild and report what would happen; commit nothing, tag nothing, publish nothing"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -143,6 +147,7 @@ jobs:
         id: commit
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           REGISTRY=src/sloppy_sdss_access/data/registry.json
@@ -155,6 +160,10 @@ jobs:
             exit 0
           fi
 
+          # A dispatch defaults to a dry run, so "what would this do?" is
+          # answerable without doing it.
+          DRY="${{ github.event.inputs.dry_run }}"
+
           # The version follows the tree tag. A new tag is a new upstream
           # release: it can move any path in the archive, so it earns a minor
           # bump whether or not this particular tag changed much. Same tag with
@@ -164,8 +173,30 @@ jobs:
           OLD_REF="$(git show "HEAD:$REGISTRY" | ref)"
           NEW_REF="$(ref < "$REGISTRY")"
           if [ "$OLD_REF" != "$NEW_REF" ]; then PART=minor; else PART=patch; fi
+          CURRENT="$(python -c "import tomllib, pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")"
+          WOULD_BE="$(python -c "import sys; sys.path.insert(0, 'src'); from sloppy_sdss_access._build import next_version; print(next_version('${CURRENT}', '${PART}'))")"
+
+          echo "sdss/tree ${OLD_REF:-none} -> ${NEW_REF} : ${PART} bump, ${CURRENT} -> ${WOULD_BE}"
+          git --no-pager diff --stat -- $PATHS
+          git status --porcelain -- $PATHS
+
+          if [ "$DRY" = "true" ]; then
+            echo "::notice::Dry run: would commit the above, tag v${WOULD_BE}, and release it."
+            echo "::notice::Re-run with dry_run unchecked to do it."
+            exit 0
+          fi
+
+          # `git push origin HEAD:main` from a feature branch would push that
+          # whole branch to main. A dispatch can name any branch, so refuse
+          # rather than trust the operator to have picked the right one.
+          if [ "${GITHUB_REF_NAME}" != "${DEFAULT_BRANCH}" ]; then
+            echo "::error::Refusing to commit to ${DEFAULT_BRANCH} from ${GITHUB_REF_NAME}."
+            echo "::error::Run this on ${DEFAULT_BRANCH}, or leave dry_run checked."
+            exit 1
+          fi
+
           VERSION="$(python tools/build_registry.py --bump "$PART")"
-          echo "sdss/tree ${OLD_REF:-none} -> ${NEW_REF} : ${PART} bump -> ${VERSION}"
+          [ "$VERSION" = "$WOULD_BE" ] || { echo "::error::bump disagreed: $VERSION"; exit 1; }
 
           {
             echo "Rebuild registry from sdss/tree@${NEW_REF} (v${VERSION})"
@@ -182,11 +213,12 @@ jobs:
           git add -- $PATHS pyproject.toml src/sloppy_sdss_access/__init__.py
           git commit -F commit-message.txt
 
-          # main can move while a build runs; rebase onto it rather than failing.
-          # The `if` keeps `set -e` from killing the loop on the first miss.
+          # The branch can move while a build runs; rebase onto it rather than
+          # failing. The `if` keeps `set -e` from killing the loop on a miss.
           pushed=
           for attempt in 1 2 3; do
-            if git pull --rebase origin main && git push origin HEAD:main; then
+            if git pull --rebase origin "$DEFAULT_BRANCH" \
+               && git push origin "HEAD:$DEFAULT_BRANCH"; then
               pushed=1
               break
             fi
