@@ -198,13 +198,47 @@ The bump is applied by `sloppy-sdss-access-build-registry --bump minor`, which
 rewrites `pyproject.toml` and `__init__.py` together — `release.yml` refuses to
 publish a tag that disagrees with either.
 
+### …and it releases it
+
+Steps 5 and 6 leave a bumped version on `main`, which reaches nobody on its own —
+PyPI artifacts are immutable, so the registry inside the last published wheel is
+what everyone still resolves against. So the job tags the bump and a second job
+calls `release.yml` with that tag:
+
+```yaml
+  release:
+    needs: update
+    if: needs.update.outputs.version != ''
+    permissions:
+      contents: write     # github-release creates the release from the tag
+      id-token: write     # PyPI Trusted Publishing
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: v${{ needs.update.outputs.version }}
+```
+
+Calling it, rather than duplicating it, means there is exactly one path to PyPI
+whether the tag came from this job or from someone's terminal. The tag is
+annotated, and its message becomes the GitHub release notes.
+
+> [!WARNING]
+> **This needs a second trusted publisher on PyPI.** PyPI resolves the OIDC
+> claim to the workflow that *started* the run, not the one containing the
+> publish job — ["Reusable workflows cannot currently be used as the workflow in
+> a Trusted Publisher"](https://docs.pypi.org/trusted-publishers/troubleshooting/).
+> So a publish through this path authenticates as `update-registry.yml`. Add it
+> alongside `release.yml` (same owner, repo and `pypi` environment) or the
+> weekly bump verifies and then fails on upload. Both are listed in the setup
+> note at the bottom of `release.yml`.
+
 > [!INFO]
-> **Committing is not publishing.** The job never tags. A registry sitting on
-> `main` reaches nobody until someone pushes `v0.2.0`, which runs the release
-> workflow — where the differential check against `sdss_access` is *blocking*,
-> unlike the `continue-on-error` copy in this job. Parity is the only check that
-> a tree change did not silently alter path semantics, so it gets the last word
-> before PyPI rather than the first.
+> **The release gates are unchanged.** `release.yml` runs the differential check
+> against `sdss_access` as a *blocking* step, unlike the `continue-on-error`
+> copy in the update job — parity is the only check that a tree change did not
+> silently alter path semantics. It also verifies the tag matches both version
+> files and smoke-tests the built wheel, and publishes through the `pypi`
+> environment, which is where a required reviewer goes if an unattended weekly
+> publish is not wanted.
 
 > [!WARNING]
 > **This used to open a PR, and it never worked.** The reasoning was sound — one

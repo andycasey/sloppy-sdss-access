@@ -467,8 +467,9 @@ file's SHA256 are recorded under `"source"` in the registry, so any given
 tests and the differential check against `sdss_access`, and **commits to `main`**
 only if the compiled output changed. A tree tag this package has not built from
 before earns a **minor version bump** — a new upstream release can move any path
-in the archive — while a re-cut tag takes a patch. Committing is not publishing:
-nothing reaches PyPI until someone pushes a `v*` tag. It opened a pull request until GitHub refused — Actions cannot create
+in the archive — while a re-cut tag takes a patch. It then tags that bump and
+calls `release.yml`, so the rebuild goes out to PyPI in the same run, through
+the same verify-and-publish path a hand-pushed tag takes. It opened a pull request until GitHub refused — Actions cannot create
 PRs unless the repository opts in — so the human diff moved from a review to
 `git log -p -- src/sloppy_sdss_access/data/registry.json`, gated on the rebuilt
 registry passing `--check` and the test suite. A second job fails CI on any PR

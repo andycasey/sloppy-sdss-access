@@ -10,11 +10,17 @@ name: Update registry from sdss/tree
 # comparable. A new tree tag is also what drives this package's version -- see
 # the version step below.
 #
-# The bump is tagged and released too, so a registry update reaches PyPI without
-# anyone having to notice it landed. The release workflow still does the
-# verifying: `verify` runs the blocking parity check against sdss_access, and
-# `publish` is gated on the `pypi` environment, which can require a human
-# reviewer. Nothing here can publish a build that does not pass those.
+# The bump is tagged and released in the same run: the `release` job below calls
+# release.yml, so a registry rebuild reaches PyPI without anyone having to
+# notice it landed. release.yml still does the verifying -- the blocking parity
+# check against sdss_access, the tag/version agreement, the wheel smoke tests --
+# and still publishes through the `pypi` environment, which is where a required
+# reviewer goes if an unattended publish is not wanted.
+#
+# NOTE: PyPI resolves the OIDC claim to the workflow that STARTED the run, so a
+# publish through this path authenticates as `update-registry.yml`, not
+# `release.yml`. It needs its own trusted publisher; see the setup note at the
+# bottom of release.yml.
 #
 # This used to open a PR, on the reasoning that a tree change can alter
 # thousands of paths and deserves a human diff. It never worked: GitHub Actions
@@ -50,7 +56,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write     # commit the registry, push the tag
-      actions: write      # start release.yml at that tag -- see the tag step
+    outputs:
+      version: ${{ steps.commit.outputs.version }}
+      tree_ref: ${{ steps.commit.outputs.tree_ref }}
     steps:
       - uses: actions/checkout@v7
 
@@ -145,10 +153,9 @@ jobs:
 
       # A tag is what release.yml publishes from, and its message becomes the
       # GitHub release notes -- so it is written to be read, not just to exist.
-      - name: Tag the bump and start the release
+      - name: Tag the bump
         if: steps.commit.outputs.version != ''
         env:
-          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.commit.outputs.version }}
           TREE_REF: ${{ steps.commit.outputs.tree_ref }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -177,18 +184,20 @@ jobs:
 
           git tag -a "${TAG}" -F tag-message.txt
           git push origin "${TAG}"
+          echo "Tagged ${TAG}; the release job takes it from here."
 
-          # The tag alone will NOT start release.yml: GitHub does not run
-          # workflows for events created with GITHUB_TOKEN, which is what
-          # sank the pull-request version of this job. workflow_dispatch is
-          # the documented exception, and dispatching AT THE TAG gives
-          # release.yml the `refs/tags/v*` ref its publish job is gated on.
-          if ! gh workflow run release.yml --ref "${TAG}" -f dry_run=false; then
-            echo "::error::${TAG} is pushed but release.yml did not start."
-            echo "::error::Run it by hand: gh workflow run release.yml --ref ${TAG} -f dry_run=false"
-            exit 1
-          fi
-          echo "Released ${TAG}: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/release.yml"
+  # Build and publish that tag, in this same run. Calling release.yml rather
+  # than duplicating it means there is exactly one path to PyPI, whether the
+  # tag came from this job or from someone's terminal.
+  release:
+    needs: update
+    if: needs.update.outputs.version != ''
+    permissions:
+      contents: write     # github-release creates the release from the tag
+      id-token: write     # PyPI Trusted Publishing
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: v${{ needs.update.outputs.version }}
 
   # Separately, fail CI on any PR whose committed registry does not match its
   # vendored cfgs -- i.e. someone edited a cfg but forgot to rebuild. Unlike the
