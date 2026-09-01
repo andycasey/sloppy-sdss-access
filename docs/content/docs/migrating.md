@@ -27,6 +27,7 @@ weight: 4
 | `.exists(sp, **k)` | same — local check; `remote=True` goes over fsspec |
 | `.templates` | same — `{species: template}` |
 | `.lookup_keys(sp)` / `.lookup_names()` / `.has_name(sp)` | same |
+| `.extract(sp, path)` | same, and better — see [Reading a path backwards]({{< relref "/docs/path-resolution" >}}#reading-a-path-backwards) |
 | `AccessError` | same — retained so `except AccessError` keeps compiling |
 | `HttpAccess().get(sp, **k)` | `Access(SDSS(r)).fetch(sp, **k)` |
 | `RsyncAccess().add(); .set_stream(); .commit()` | `Access(SDSS(r)).fetch_many([(sp, keys), ...])` |

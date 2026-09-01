@@ -19,6 +19,7 @@ legacy                        here
 ``.url(species, **keys)``     identical
 ``.location(species, ...)``   SAS-relative path (our native ``.path()``)
 ``.exists(species, ...)``     local filesystem check
+``.extract(species, path)``   keys read back out of a path
 ``AccessError``               :class:`AccessError`
 ============================  ====================================
 
@@ -127,6 +128,18 @@ class Path:
         if kwargs.get("remote"):
             return _Access(self._paths).exists(filetype, **self._clean(kwargs))
         return _Path(self.full(filetype, **kwargs)).exists()
+
+    def extract(self, filetype: str, example: str | os.PathLike) -> dict[str, Any] | None:
+        """Keys read back out of an example path, as legacy ``extract`` did.
+
+        Legacy returned every value as a string, dropped the keys written by a
+        derivation, and raised ``ValueError("This case has not yet been
+        accounted for.")`` on key combinations it had no branch for. This
+        returns ints where they round-trip, recovers the derived keys, and
+        returns ``None`` rather than raising when the path does not match. See
+        :meth:`~sloppy_sdss_access.paths.SDSS.extract`.
+        """
+        return self._paths.extract(filetype, example)
 
     def name(self, filetype: str, **kwargs: Any) -> str:
         """Filename only."""

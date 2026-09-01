@@ -337,6 +337,47 @@ returns a path with the literal variable in it.
 > not of the archive. Check `SDSS(r).product(sp).external` to detect them up front.
 > See [Limitations]({{< relref "/docs/limitations" >}}).
 
+## Reading a path backwards
+
+`extract()` is the inverse of `path()`: keys out of a path, rather than a path
+out of keys.
+
+```python
+dr19.extract("specLite", "dr19/spectro/boss/redux/v6_1_3/spectra/lite/"
+                         "101077/59797/spec-101077-59797-27021598108587618.fits")
+```
+
+```
+{'run2d': 'v6_1_3', 'fieldid': 101077, 'mjd': 59797, 'catalogid': 27021598108587618}
+```
+
+It takes a SAS-relative path, a URL, or an absolute path under a local SAS
+root, and returns `None` — rather than raising — when the path is not one that
+product could have produced, which makes it a membership test as well as a
+parser.
+
+Two things it does that the legacy `Path.extract` does not:
+
+* **Keys that only a derivation writes still come back.** `specLite` names
+  `fieldid` nowhere except inside `@pad_fieldid|`, and you get it anyway.
+* **Values are typed where that round-trips.** `sdss_id` comes back as an
+  `int`; a zero-padded value under a template that does no padding of its own
+  stays a `str`, because `int()` would lose the zeros for good. Feeding the
+  result back into `path()` reproduces the input — that round-trip is asserted
+  for every product in every release.
+
+Two things it cannot do, both because the information is not in the path:
+
+* An APOGEE `telescope` of `apo25m` and `apo1m` both write `ap`, so
+  `@apgprefix|` yields no `telescope`.
+* A template that *truncates* a key — DR17's `atlas_*` write `{version:.2}` —
+  is not invertible. You get the longest surviving fragment.
+
+The compiled regex is available as `dr19.pattern(species)` if you would rather
+match a few million filenames yourself, and `Access.glob()` uses all of this to
+[return parameter dicts]({{< relref "/docs/remote-access" >}}#what-a-glob-hands-back)
+alongside the URIs it finds.
+
 ## Introspection
 
 ```python

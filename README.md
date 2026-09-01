@@ -191,6 +191,22 @@ Genuinely async (`fsspec` `asynchronous=True` + `asyncio.gather` under a
 semaphore), not merely named so. Downloads are content-cached, so a repeat call
 is ~1 ms rather than a re-transfer.
 
+**Glob, with the parameters** — [#97](https://github.com/sdss/sdss_access/issues/97).
+A glob tells you *which* products exist; the parameters are what you wanted.
+
+```python
+hits = a.glob("mwmStar", sdss_id="*")
+hits[0]                          # a str: '.../mwmStar-0.6.0-125678.fits'
+hits[0].to_dict()                # {'v_astra': '0.6.0', 'sdss_id': 125678}
+[h.to_dict() for h in hits]      # -> Table(rows=...) / DataFrame
+```
+
+Wildcards are pushed through derivations, so `sdss_id="*"` globs the two
+`@sdss_id_groups|` directories as `*/*` without you knowing the scheme. Reading
+a path backwards is also available on its own, as `dr19.extract(species, path)`
+— the inverse of `path()`, asserted to round-trip for every product in every
+release.
+
 **Cloud** — [#101](https://github.com/sdss/sdss_access/issues/101).
 `Access(dr19, protocol="s3", bucket=...)` constructs `s3://` URIs. **Untested** —
 SDSS data is not on MAST yet, no bucket exists to check against, and S3
