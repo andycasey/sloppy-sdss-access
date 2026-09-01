@@ -431,7 +431,13 @@ def _compile(template: str) -> tuple[re.Pattern[str], tuple[_Group, ...]]:
         if reversal.collapsible and template[position : position + 1] == "/":
             # path() squashes the `//` an empty segment leaves behind, so the
             # separator has to be optional along with the segment itself.
-            group = f"(?:{group}/)?"
+            #
+            # A segment that reveals no key is matched *lazily*, so that when
+            # neighbouring segments have both collapsed the text goes to the
+            # one that does reveal a key. On a legacy run2d, `spArc` writes one
+            # segment where the template has three; greedily, `@fieldgrp|`
+            # would eat it and the fieldid would be lost.
+            group = f"(?:{group}/)?" if reversal.key else f"(?:{group}/)??"
             position += 1
         parts.append(group)
         groups.append(_Group(name, reversal.key, reversal.parse, _DERIVED))

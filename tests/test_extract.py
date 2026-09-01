@@ -11,6 +11,7 @@ import re
 import pytest
 
 from sloppy_sdss_access import SDSS, Access, known_releases
+from sloppy_sdss_access.derive import REVERSALS
 
 dr19 = SDSS("dr19")
 
@@ -76,6 +77,22 @@ def test_extract_recovers_a_key_that_only_a_derivation_writes():
         "mjd": 59797,
         "catalogid": 27021598108587618,
     }
+
+
+def test_extract_survives_collapsed_neighbouring_segments():
+    """On a legacy run2d, spArc writes one segment where the template has three.
+
+    @sptypefolder| and @fieldgrp| both collapse to nothing, and greedily
+    @fieldgrp| would eat the fieldid segment and drop the key.
+    """
+    dr20 = SDSS("dr20")
+    legacy = dr20.path("spArc", run2d="v6_1_3", fieldid=101077, br="b", id=4, frame=82)
+    current = dr20.path("spArc", run2d="v6_2_0", fieldid=101077, br="b", id=4, frame=82)
+
+    assert legacy.endswith("v6_1_3/101077/spArc-b4-00000082.fits.gz")
+    assert current.endswith("v6_2_0/fields/101XXX/101077/spArc-b4-00000082.fits.gz")
+    assert dr20.extract("spArc", legacy)["fieldid"] == 101077
+    assert dr20.extract("spArc", current)["fieldid"] == 101077
 
 
 def test_extract_reports_keys_in_template_order():
@@ -175,8 +192,31 @@ def test_every_product_round_trips():
     assert checked > 3000
 
 
+def test_every_recoverable_key_comes_back():
+    """A key the path actually shows must be extracted, for every product.
+
+    The round-trip above cannot see a dropped key -- it re-resolves with the
+    original keys underneath -- so this asserts coverage directly. "Recoverable"
+    is structural: the key is written literally in the template, or a derivation
+    in it declares that key. Everything else is unrecoverable by construction
+    (`@apgprefix|` writes "ap" for both apo25m and apo1m).
+    """
+    for sdss, species, product in _products():
+        keys = {key: FAKE.get(key, "xyz") for key in product.keys}
+        recovered = sdss.extract(species, sdss.path(species, **keys))
+
+        literal = {k for k in product.keys if "{%s}" % k in product.template
+                   or "{%s:" % k in product.template}
+        derived = {REVERSALS[d].key for d in product.derivations} & set(product.keys)
+
+        assert (literal | derived) <= set(recovered), (
+            f"{sdss.release}/{species} lost "
+            f"{(literal | derived) - set(recovered)}: {product.template}"
+        )
+
+
 def test_every_derivation_declares_a_reversal():
-    from sloppy_sdss_access.derive import DERIVATIONS, REVERSALS
+    from sloppy_sdss_access.derive import DERIVATIONS
 
     assert set(REVERSALS) == set(DERIVATIONS)
 
