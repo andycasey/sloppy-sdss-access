@@ -19,7 +19,12 @@ marked ``BUG-COMPAT``.
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Callable
+
+__all__ = ["DERIVATIONS", "REVERSALS", "Reversal", "derivation"]
 
 Derivation = Callable[..., str]
 
@@ -346,3 +351,114 @@ def spectrodir(species: str, **keys: Any) -> str:
         raise KeyError(
             f"{which} is not resolved for this release; spectrodir needs it"
         ) from None
+
+
+# --------------------------------------------------------------------------
+# reading derived segments back
+# --------------------------------------------------------------------------
+#
+# A derivation is a one-way function: it turns keys into a path segment. Going
+# the other way -- which is what `SDSS.extract()` and `Access.glob()` need --
+# takes two extra facts per derivation, neither of which can be recovered from
+# the function itself, so they are declared here alongside it.
+
+
+@lru_cache(maxsize=None)
+def _matches_empty(pattern: str) -> bool:
+    return re.compile(pattern).fullmatch("") is not None
+
+
+def _int_or_str(text: str) -> Any:
+    """``"000015"`` -> ``15``, ``"allepoch"`` -> ``"allepoch"``."""
+    return int(text) if text.isdigit() else text
+
+
+@dataclass(frozen=True, slots=True)
+class Reversal:
+    """How to read one derived path segment backwards.
+
+    Parameters
+    ----------
+    pattern
+        A regex fragment matching everything the derivation can emit. Kept as
+        tight as the derivation allows: a loose ``.*`` would match the wrong
+        thing in a neighbouring segment.
+    wildcard
+        What to substitute when the derivation's inputs are wildcards, so that
+        the result is still a usable glob. Not always ``*``:
+        ``@sdss_id_groups|`` spans *two* directory levels, and a single ``*``
+        does not cross a ``/``.
+    key
+        The key this segment reveals, where it reveals one. This is not
+        cosmetic: ``specLite``'s template names ``fieldid`` nowhere except
+        inside ``@pad_fieldid|``, so without this an extracted key set would
+        silently be missing it.
+    parse
+        Segment text -> key value. Only consulted when ``key`` is set.
+    """
+
+    pattern: str
+    wildcard: str = "*"
+    key: str | None = None
+    parse: Callable[[str], Any] = str
+
+    @property
+    def collapsible(self) -> bool:
+        """True if this segment can come out empty -- and so be collapsed away.
+
+        ``SDSS.path()`` squashes the ``//`` an empty segment leaves behind, so a
+        pattern for such a segment has to be able to eat its own separator.
+        """
+        return _matches_empty(self.pattern)
+
+
+#: ``derivation name -> Reversal``. Every name in :data:`DERIVATIONS` appears.
+REVERSALS: dict[str, Reversal] = {
+    # -- grouping directories ------------------------------------------
+    "healpixgrp": Reversal(r"[0-9]+"),
+    "cat_id_groups": Reversal(r"[0-9]{2}/[0-9]{2}", wildcard="*/*"),
+    "sdss_id_groups": Reversal(r"[0-9]{2}/[0-9]{2}", wildcard="*/*"),
+    "configgrp": Reversal(r"[0-9]{4}XX"),
+    "configsubmodule": Reversal(r"[0-9]{3}XXX"),
+    "tilegrp": Reversal(r"[0-9]*XX"),
+    "platedir": Reversal(
+        r"[0-9]{4,}XX/[0-9]{6,}",
+        wildcard="*/*",
+        key="plateid",
+        parse=lambda text: int(text.split("/")[-1]),
+    ),
+    # -- APOGEE --------------------------------------------------------
+    # "ap" is apo25m or apo1m, so the telescope is genuinely not recoverable.
+    "apgprefix": Reversal(r"(?:ap|as)?"),
+    "component_default": Reversal(r"[A-Za-z]*", key="component"),
+    # -- BOSS / idlspec2d ----------------------------------------------
+    "isplate": Reversal(r"p?"),
+    "pad_fieldid": Reversal(r"[^/]*?", key="fieldid", parse=_int_or_str),
+    "fieldgrp": Reversal(r"[^/]*"),
+    # Exhaustive: sptypefolder returns one of these and nothing else.
+    "sptypefolder": Reversal(
+        r"(?:epoch/spectra|spectra/epoch|summary/epoch|summary/daily"
+        r"|epoch|daily|fields)?"
+    ),
+    "spcoaddfolder": Reversal(r"[^/]*"),
+    "spcoaddgrp": Reversal(r"[^/]*"),
+    "epochflag": Reversal(r"(?:-epoch)?"),
+    "spcoaddobs": Reversal(r"(?:_[a-z0-9]+)?", key="obs", parse=lambda t: t.lstrip("_")),
+    # -- MOS targeting -------------------------------------------------
+    # Blank for parquet, "-NNN" for FITS.
+    "mos_target_num": Reversal(r"(?:-[0-9]+)?", key="num", parse=lambda t: int(t.lstrip("-"))),
+    "mos_target_num2": Reversal(r"(?:-[0-9]+)?", key="num", parse=lambda t: int(t.lstrip("-"))),
+    "mos_target_num3": Reversal(r"(?:-[0-9]+)?", key="num", parse=lambda t: int(t.lstrip("-"))),
+    # -- plate era -----------------------------------------------------
+    "plateid6": Reversal(r"[0-9]+", key="plateid", parse=int),
+    "plategrp": Reversal(r"(?:[0-9]{4})?XX"),
+    "definitiondir": Reversal(r"[0-9]{4}XX"),
+    # A root directory, not a segment -- it contains slashes of its own.
+    "spectrodir": Reversal(r".+?"),
+}
+
+assert set(REVERSALS) == set(DERIVATIONS), (
+    "every derivation needs a Reversal: "
+    f"missing {sorted(set(DERIVATIONS) - set(REVERSALS))}, "
+    f"unknown {sorted(set(REVERSALS) - set(DERIVATIONS))}"
+)

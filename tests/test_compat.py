@@ -56,6 +56,18 @@ def test_collaboration_releases_use_the_sdss5_host():
     assert url.startswith("https://data.sdss5.org/sas/")
 
 
+def test_extract_reads_keys_back_out_of_a_path():
+    """Legacy Path.extract, minus the string-only values and the dropped keys."""
+    p = Path(release="dr19")
+    full = p.full("specLite", fieldid=101077, mjd=59797, catalogid=27021598108587618)
+    assert p.extract("specLite", full) == {
+        "run2d": "v6_1_3",
+        "fieldid": 101077,
+        "mjd": 59797,
+        "catalogid": 27021598108587618,
+    }
+
+
 def test_name_and_dir(tmp_path):
     p = Path(release="dr19", root=tmp_path)
     assert p.name("specLite", **SPEC) == "spec-015000-59146-4375924756.fits"

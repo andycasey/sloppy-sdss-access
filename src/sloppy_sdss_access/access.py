@@ -29,15 +29,12 @@ from typing import Any, Iterable, Sequence
 import fsspec
 
 from .auth import Credentials, resolve
-from .paths import MIRROR_HOST, SAS_HOST, SDSS
+from .paths import COMPRESSION_SUFFIXES, MIRROR_HOST, SAS_HOST, SDSS
 from .registry import load
 
 __all__ = ["Access"]
 
 DEFAULT_CACHE = Path(os.environ.get("XDG_CACHE_HOME", "~/.cache")) / "sloppy_sdss_access"
-
-# Suffixes the SAS uses that a tree template may or may not mention.
-COMPRESSION_SUFFIXES = (".gz", ".bz2", ".fz", ".zip", ".Z")
 
 
 @dataclass(slots=True)
@@ -345,7 +342,23 @@ class Access:
     # ------------------------------------------------------------------
 
     def glob(self, species: str, **keys: Any) -> list[str]:
-        """Expand a product whose keys contain ``*`` wildcards."""
+        """Expand a product whose keys contain ``*`` wildcards.
+
+        Wildcards are pushed through derivations where the shape of the derived
+        segment allows it -- ``sdss_id="*"`` globs the two ``@sdss_id_groups|``
+        directories as ``*/*`` -- so you do not have to know the grouping
+        scheme to glob across it.
+
+        To get the key values back out of what you find, hand each hit to
+        :meth:`~sloppy_sdss_access.paths.SDSS.extract` (sdss/sdss_access#97)::
+
+            urls = access.glob("mwmStar", sdss_id="*")
+            [dr19.extract("mwmStar", url) for url in urls]
+            [{'v_astra': '0.6.0', 'sdss_id': 125678}, ...]
+
+        Note this uses :meth:`uri`, **not** :meth:`resolve_uri`, so no
+        compression probing is applied; ``extract`` matches either way.
+        """
         return self.fs.glob(self.uri(species, **keys))
 
     def __repr__(self) -> str:
