@@ -154,11 +154,57 @@ outside the standard library). It runs in under a second, and the `update` job
 below is gated on its answer, so the ~8,759 runs a year that find nothing cost
 seconds each and the one that finds a tag starts the rebuild within the hour.
 
-> [!INFO]
-> **The only push-based alternative is `repository_dispatch`**, which needs a
-> workflow *inside* `sdss/tree` POSTing to this repository with a token that has
-> write access here. That means changing another team's repository and making it
-> depend on this one. Polling is worse in theory and much better in practice. The default,
+### Being told instead of looking
+
+Polling is the fallback. If you can add a workflow to `sdss/tree`, it can say so
+directly, and the rebuild starts in seconds rather than within the hour. This
+workflow goes at *their* end:
+
+```yaml
+# sdss/tree/.github/workflows/notify-sloppy-sdss-access.yml
+name: Notify sloppy-sdss-access
+on:
+  push:
+    tags: ["*"]
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.SLOPPY_SDSS_ACCESS_DISPATCH }}
+        run: |
+          gh api repos/andycasey/sloppy-sdss-access/dispatches \
+            -f event_type=tree-tagged \
+            -F client_payload[tag]="$GITHUB_REF_NAME"
+```
+
+and this end already listens for it:
+
+```yaml
+on:
+  repository_dispatch:
+    types: [tree-tagged]
+```
+
+Three things about it that are easy to get wrong:
+
+* **It needs a token, and the token lives in `sdss/tree`.** `POST /dispatches`
+  requires write access to the *target* repository, so this is a credential to
+  `andycasey/sloppy-sdss-access` held in another org's secrets. Make it a
+  fine-grained PAT scoped to that one repository with **Contents: read and
+  write** and nothing else, so the blast radius is one repo, and rotate it like
+  any other shared secret.
+* **`repository_dispatch` only ever runs workflows on the default branch.** The
+  workflow file has to be on `main` — a version of it on a feature branch will
+  never fire.
+* **The payload is a courtesy, not an instruction.** The ping still goes through
+  `poll`, which resolves the newest tag itself and compares it with what the
+  registry was built from. A ping for a tag already built is correctly a no-op,
+  a ping that arrives twice rebuilds once, and a ping that never arrives is
+  covered by the hourly cron an hour later. Push and poll converge on the same
+  gate, so neither can produce a state the other cannot.
+
+Without it, hourly polling is the whole mechanism, and it is fine. The default,
 `latest`, means **sdss/tree's newest release tag** — not `main`. A tag is
 something upstream chose to publish, so a registry can name the tree release it
 came from and two builds a day apart are comparable; `main` is a moving target.
