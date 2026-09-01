@@ -462,10 +462,13 @@ DR16…DR8 — 18 configs in total for the current release list. The ref and eac
 file's SHA256 are recorded under `"source"` in the registry, so any given
 `registry.json` says which tree revision produced it.
 
-`.github/workflows/update-registry.yml` automates this: it rebuilds weekly (and
-on demand, with a `ref` input), runs the tests and the differential check
-against `sdss_access`, and **commits to `main`** only if the compiled output
-changed. It opened a pull request until GitHub refused — Actions cannot create
+`.github/workflows/update-registry.yml` automates this: it rebuilds weekly from
+**sdss/tree's newest release tag** (or any `ref` you dispatch it with), runs the
+tests and the differential check against `sdss_access`, and **commits to `main`**
+only if the compiled output changed. A tree tag this package has not built from
+before earns a **minor version bump** — a new upstream release can move any path
+in the archive — while a re-cut tag takes a patch. Committing is not publishing:
+nothing reaches PyPI until someone pushes a `v*` tag. It opened a pull request until GitHub refused — Actions cannot create
 PRs unless the repository opts in — so the human diff moved from a review to
 `git log -p -- src/sloppy_sdss_access/data/registry.json`, gated on the rebuilt
 registry passing `--check` and the test suite. A second job fails CI on any PR

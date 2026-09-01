@@ -1,8 +1,14 @@
 name: Update registry from sdss/tree
 
 # The registry is a build artifact of sdss/tree. This keeps it fresh without
-# anyone having to remember: it rebuilds weekly and commits straight to main,
-# but only when the compiled output actually changes.
+# anyone having to remember: it rebuilds weekly from sdss/tree's newest release
+# TAG and commits straight to main, but only when the compiled output actually
+# changes.
+#
+# Tag, not `main`: a tag is something upstream chose to publish, so a registry
+# can say which tree release it came from, and two builds a day apart are
+# comparable. A new tree tag is also what drives this package's version -- see
+# the version step below.
 #
 # This used to open a PR, on the reasoning that a tree change can alter
 # thousands of paths and deserves a human diff. It never worked: GitHub Actions
@@ -24,8 +30,8 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "git ref of sdss/tree to build from (tag, branch, or SHA)"
-        default: "main"
+        description: "git ref of sdss/tree to build from (tag, branch, SHA, or 'latest')"
+        default: "latest"
         required: false
 
 permissions:
@@ -49,7 +55,7 @@ jobs:
       - name: Rebuild registry from sdss/tree
         run: |
           python tools/build_registry.py \
-            --fetch --ref "${{ github.event.inputs.ref || 'main' }}" | tee build.log
+            --fetch --ref "${{ github.event.inputs.ref || 'latest' }}" | tee build.log
 
       - name: Run tests against the new registry
         run: pytest -q
@@ -71,11 +77,12 @@ jobs:
 
       - name: Commit the rebuilt registry to main
         env:
-          REF: ${{ github.event.inputs.ref || 'main' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          PATHS="src/sloppy_sdss_access/data/registry.json tools"
+          REGISTRY=src/sloppy_sdss_access/data/registry.json
+          PATHS="$REGISTRY tools"
+
           # --porcelain, not `git diff`: a release added upstream arrives as a
           # new, untracked cfg, which a diff of tracked files would not see.
           if [ -z "$(git status --porcelain -- $PATHS)" ]; then
@@ -83,8 +90,22 @@ jobs:
             exit 0
           fi
 
+          # The version follows the tree tag. A new tag is a new upstream
+          # release: it can move any path in the archive, so it earns a minor
+          # bump whether or not this particular tag changed much. Same tag with
+          # a different payload means the tag was moved under us -- rare, but
+          # the change still has to reach PyPI, so it takes a patch.
+          ref() { python -c "import json,sys; print(json.load(sys.stdin)['source'].get('ref') or '')"; }
+          OLD_REF="$(git show "HEAD:$REGISTRY" | ref)"
+          NEW_REF="$(ref < "$REGISTRY")"
+          if [ "$OLD_REF" != "$NEW_REF" ]; then PART=minor; else PART=patch; fi
+          VERSION="$(python tools/build_registry.py --bump "$PART")"
+          echo "sdss/tree ${OLD_REF:-none} -> ${NEW_REF} : ${PART} bump -> ${VERSION}"
+
           {
-            echo "Rebuild registry from sdss/tree@${REF}"
+            echo "Rebuild registry from sdss/tree@${NEW_REF} (v${VERSION})"
+            echo
+            echo "sdss/tree ${OLD_REF:-none} -> ${NEW_REF}, so ${PART} bump to ${VERSION}."
             echo
             grep " products" build.log || true
             echo
@@ -93,7 +114,7 @@ jobs:
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- $PATHS
+          git add -- $PATHS pyproject.toml src/sloppy_sdss_access/__init__.py
           git commit -F commit-message.txt
 
           # main can move while a build runs; rebase onto it rather than failing.
